@@ -1,0 +1,15 @@
+# Build output
+target/
+
+# Working draft (manuscript, figures, render scratch) - not for publication
+paper/
+
+# Java / IDE
+*.class
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
