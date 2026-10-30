@@ -1,0 +1,17 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+qwen-traceA,1,image,ttft,41,41,0,0,NaN
+qwen-traceA,1,image,e2e,41,41,0,0,NaN
+qwen-traceA,1,image,tpot,41,41,0,0,NaN
+qwen-traceA,1,image,all,41,41,0,0,NaN
+qwen-traceA,1,text,ttft,427,427,0,0,NaN
+qwen-traceA,1,text,e2e,427,427,0,0,NaN
+qwen-traceA,1,text,tpot,427,427,0,0,NaN
+qwen-traceA,1,text,all,427,427,0,0,NaN
+qwen-traceA,1,search,ttft,105,105,0,0,NaN
+qwen-traceA,1,search,e2e,105,105,0,0,NaN
+qwen-traceA,1,search,tpot,105,105,0,0,NaN
+qwen-traceA,1,search,all,105,105,0,0,NaN
+qwen-traceA,1,file,ttft,27,27,0,0,NaN
+qwen-traceA,1,file,e2e,27,27,0,0,NaN
+qwen-traceA,1,file,tpot,27,27,0,0,NaN
+qwen-traceA,1,file,all,27,27,0,0,NaN

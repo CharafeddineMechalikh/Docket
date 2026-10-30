@@ -22,9 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.mechalikh.genaism.config.Scenario;
 import com.mechalikh.genaism.experiment.Experiment;
@@ -92,6 +98,41 @@ class ExperimentIntegrationTest {
 		assertTrue(heavyLoad >= lightLoad,
 				"offering ten times the traffic at the same horizon cannot leave the device less busy");
 		assertTrue(heavyLoad <= 1.0 + 1e-9);
+	}
+
+	@Test
+	void aTraceWhoseSuspendedPrefillsFillTheCacheStillCompletesEveryRequest(@TempDir Path directory)
+			throws IOException {
+		// Three prompts of 8,000 tokens arrive together on a cache of about 20,900 tokens. Two fit
+		// and start decoding; the third suspends its prefill holding the chunks it reserved, which
+		// leaves too few blocks for the remaining decode steps of the first two. With preemption off nothing running can free
+		// one, so a replica that keeps those chunks without ever releasing them idles with all
+		// three requests inside it and the run ends with timeouts instead of results.
+		Path trace = directory.resolve("long-prompts.csv");
+		List<String> rows = new ArrayList<>();
+		rows.add("arrival_time_s,model_id,input_tokens,output_tokens");
+		for (int index = 0; index < 3; index++)
+			rows.add("0.000,tiny-124m,8000,512");
+		Files.write(trace, rows);
+
+		Path scenarioFile = directory.resolve("suspended-prefills.properties");
+		List<String> settings = new ArrayList<>(Files.readAllLines(Paths.get(ScenarioTestSupport.LIGHT)));
+		settings.add("experiment.name=suspended-prefills");
+		settings.add("experiment.durationSeconds=120");
+		settings.add("experiment.repetitions=1");
+		settings.add("device.memoryGiB=1");
+		settings.add("model.maxContextTokens=16384");
+		settings.add("replica.allowPreemption=false");
+		settings.add("workload.pattern=trace");
+		settings.add("workload.traceFile=" + trace.getFileName());
+		settings.add("workload.prediction=trace-observed");
+		Files.write(scenarioFile, settings);
+
+		RunResult run = new Experiment(ScenarioTestSupport.load(scenarioFile.toString())).runRepetition(1);
+
+		assertEquals(3, run.getArrivedRequests());
+		assertEquals(3, run.getCompletedRequests(),
+				"a suspended prefill that keeps its blocks must not leave the replica with nothing runnable");
 	}
 
 	private double utilisationAt(int ratePerMinute) {

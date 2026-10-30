@@ -10,16 +10,22 @@ exercise: a replay changes the traffic, not the cost model.
 
 ## What ships in this repository
 
-No trace file is committed. Both scenarios under `scenarios/` generate their traffic, and no
-provider trace (OpenAI, Anthropic, Gemini or otherwise) is used anywhere. The replay path is
-implemented, validated and tested, but the repository does not claim a trace-driven result it has
-not run. A public trace is the first item on the roadmap in the [README](../README.md#roadmap).
+Four trace files are committed under [`examples/real-traces/data/`](../examples/real-traces/data):
+600-request windows cut from the Azure LLM inference trace, the Qwen-Bailian trace, the Mooncake
+conversation trace recorded on Kimi traffic, and BurstGPT. Each has a downloader, a converter, a
+paired scenario, an archived run under `examples/real-traces/results/` and a SHA-256 record in
+`manifest.json`. [The example README](../examples/real-traces/README.md) is the tour; this page is
+the format reference.
 
-The reason is provenance, not effort. A trace supplies arrivals and lengths; it does not supply the
-time a step takes on the device. That number still comes from the [roofline model](cost-model.md),
-which is uncalibrated here, so with the model, device and cost model this repository ships,
-`overallProvenance` in the console stays `synthetic` even when the workload is recorded. Replaying a
-real trace makes the traffic honest; it does not make the latencies measured.
+The two scenarios under `scenarios/` still generate their traffic. The replay examples are a
+separate directory because they answer a different question: whether the engine behaves under a
+measured arrival process, not whether the engine predicts a particular deployment.
+
+A trace supplies arrivals and lengths; it does not supply the time a step takes on the device.
+That number still comes from the [roofline model](cost-model.md), which is uncalibrated here, so
+with the model, device and cost model this repository ships, `overallProvenance` in the console
+stays `synthetic` even when the workload is recorded. Replaying a real trace makes the traffic
+honest; it does not make the latencies measured.
 
 ## File rules
 
@@ -147,29 +153,41 @@ the first is handled.
 
 ## Mapping a public trace
 
-Three public traces are the usual candidates. The column names below follow the releases as
-published; every release renames something eventually, so check the header of the file you actually
-downloaded instead of trusting this table. Conversion is a short script, and it should be committed
-next to the run that uses it, because the converter is part of the method.
+The four mappings used by [`convert_traces.py`](../examples/real-traces/convert_traces.py) are
+below. Column names follow the releases as published; every release renames something eventually,
+so check the header of the file you actually downloaded instead of trusting this table. The
+converter is committed next to the data because the converter is part of the method, and
+`manifest.json` records the window, the dropped rows and the SHA-256 of the source file.
 
 | Trace | Time base | Lengths | Mapping |
 |---|---|---|---|
-| Azure LLM inference trace (AzurePublicDataset) | Millisecond timestamps, conversation and code subsets | `ContextTokens`, `GeneratedTokens` | `arrival_time_s = (timestamp - first) / 1000`; `input_tokens = ContextTokens`; `output_tokens = GeneratedTokens` |
-| BurstGPT | Timestamp in seconds | `Request tokens`, `Response tokens`, per log type | `arrival_time_s = timestamp - first`; lengths map directly; map `Log Type` to `service_class` so the accounting can separate the workloads |
+| Azure LLM inference trace (AzurePublicDataset) | Wall-clock `TIMESTAMP`, `YYYY-MM-DD HH:MM:SS.fffffff` | `ContextTokens`, `GeneratedTokens` | Parse the seven-digit fraction to seconds, subtract the first instant; lengths map directly |
+| Qwen-Bailian | `timestamp` in seconds | `input_length`, `output_length` | Subtract the first instant; `type` becomes the service class; `chat_id` becomes `session_id` |
+| Mooncake (Kimi) | `timestamp` in milliseconds | `input_length`, `output_length` | Divide by 1000, subtract the first instant; `hash_ids` identify a prefix rather than a session, so they are not mapped |
+| BurstGPT | `Timestamp` in seconds | `Request tokens`, `Response tokens` | Subtract the first instant; `Log Type` becomes the service class, so the accounting can separate API calls from conversations |
 | ShareGPT conversations | None: a conversation has an order, not a clock | Prompt and response text per turn, tokenized by you | Timings must be synthesized, so this trace calibrates lengths and session structure, not arrivals |
 
-Two cautions that apply to all three:
+No length is clamped, rounded down or resampled. A row that cannot be parsed is counted in the
+manifest's `dropped` record and reported, not silently skipped. The arrival instants of a window
+are rebased to zero, so each replay starts at simulated time 0.
+
+Cautions that apply to every row above:
 
 - **Tokenizers differ.** A token count produced by another model's tokenizer is an approximation
   of this model's count, and the error is systematic, not random. Record which tokenizer produced
   the counts next to the trace file and the scenario that replays it.
 - **A conversation trace is not a trace of arrivals.** ShareGPT says which turns belong together
   and in what order; it does not say how long a user thought before typing. Replaying it with
-  invented gaps is a semi-synthetic workload, and the artifact should be read that way.
+  invented gaps is a semi-synthetic workload, and the artifact should be read that way. Qwen and
+  Mooncake do carry arrival instants, so their replays are not in this category.
+- **Prefix hashes are evidence, not input.** Qwen's and Mooncake's `hash_ids` describe the prefix
+  a caching engine could reuse. This simulator has no cross-request prefix cache, so the converter
+  keeps Qwen's `chat_id` as `session_id`, does not map `hash_ids`, and the replay does not use them
+  for scheduling.
 
 ## Checking a replay
 
-Three places reconcile what was read with what was run, and they should agree:
+Four places reconcile what was read with what was run:
 
 1. `config.txt` carries a `# Trace:` line built by the loader, for instance
    `# Trace: trace example.csv, 4 rows read, 4 replayed, arrival instants scaled by 0.2500`.
@@ -177,6 +195,11 @@ Three places reconcile what was read with what was run, and they should agree:
 3. Per-row evidence lives in `repNN/requests.csv`: `arrival_time_s`, `input_tokens` and
    `output_tokens` of every released request, which can be joined back to the trace to confirm that
    the replay did not reorder or rescale anything it should not have.
+4. [`verify_replays.py`](../examples/real-traces/verify_replays.py) does that join as a multiset of
+   (arrival, prompt, requested output, service class), reports the largest arrival difference and
+   every unmatched or extra row, and ends with `REPLAY_CHECK OK`. The four committed replays
+   reconcile with 600 rows each and a maximum difference of 0 s; the archived output is
+   `examples/real-traces/results/replay-check.txt`.
 
 If `offered` is smaller than the rows replayed, the run ended before the trace did. If any row
 carries `no_replica_for_model`, the `model_id` column does not match the scenario's `model.id`.

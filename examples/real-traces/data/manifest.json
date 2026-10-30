@@ -1,0 +1,130 @@
+[
+  {
+    "trace": "azure-conv",
+    "upstream": "https://github.com/Azure/AzurePublicDataset/blob/master/data/AzureLLMInferenceTrace_conv.csv",
+    "citation": "Azure Public Dataset, Azure LLM inference trace 2023, conversation subset",
+    "license": "CC-BY-4.0",
+    "cache_file": "azure_conv_2023.csv",
+    "cache_sha256": "2f1e5b666d4e3055fdbba98598ce2ec307767b9064e03e2fa46676dbcc7d0bf8",
+    "window": "the first 600 data rows",
+    "rows": 600,
+    "first_arrival_s": 0.0,
+    "last_arrival_s": 148.189,
+    "mean_rate_per_min": 242.93,
+    "input_tokens": {
+      "min": 2,
+      "mean": 922.3,
+      "max": 4107
+    },
+    "output_tokens": {
+      "min": 12,
+      "mean": 261.5,
+      "max": 739
+    },
+    "service_classes": [
+      "default"
+    ],
+    "dropped": {
+      "missing": 0,
+      "truncated": 0,
+      "out_of_order": 0
+    }
+  },
+  {
+    "trace": "qwen-traceA",
+    "upstream": "https://github.com/alibaba-edu/qwen-bailian-usagetraces-anon",
+    "citation": "Qwen-Bailian anonymous trace, qwen_traceA (To-C, chat-style)",
+    "license": "Apache-2.0",
+    "cache_file": "qwen_traceA_part.jsonl",
+    "cache_sha256": "b732f2b2ee5b61323b6e60e34745755a4032206db6b46f5e878d3adbee89f5ff",
+    "window": "the first 600 rows",
+    "rows": 600,
+    "first_arrival_s": 0.0,
+    "last_arrival_s": 196.483,
+    "mean_rate_per_min": 183.22,
+    "input_tokens": {
+      "min": 66,
+      "mean": 1621.9,
+      "max": 16744
+    },
+    "output_tokens": {
+      "min": 2,
+      "mean": 352.1,
+      "max": 2516
+    },
+    "service_classes": [
+      "file",
+      "image",
+      "search",
+      "text"
+    ],
+    "dropped": {
+      "missing": 0,
+      "truncated": 1,
+      "out_of_order": 0
+    }
+  },
+  {
+    "trace": "kimi-conversation",
+    "upstream": "https://github.com/kvcache-ai/Mooncake/tree/main/FAST25-release/traces",
+    "citation": "Mooncake FAST'25 conversation trace, the Kimi serving workload",
+    "license": "Apache-2.0",
+    "cache_file": "mooncake_conversation.jsonl",
+    "cache_sha256": "b8cbb061a85206d729d91cdc2981f43c9e0d99209dce588d3af5f7934408b9df",
+    "window": "the first 600 rows at or after 2,799,000 ms, the densest ten minutes",
+    "rows": 600,
+    "first_arrival_s": 0.0,
+    "last_arrival_s": 159.0,
+    "mean_rate_per_min": 226.42,
+    "input_tokens": {
+      "min": 892,
+      "mean": 11682.5,
+      "max": 123386
+    },
+    "output_tokens": {
+      "min": 1,
+      "mean": 325.8,
+      "max": 1998
+    },
+    "service_classes": [
+      "default"
+    ],
+    "dropped": {
+      "missing": 0,
+      "truncated": 0,
+      "out_of_order": 0
+    }
+  },
+  {
+    "trace": "burstgpt",
+    "upstream": "https://github.com/HPMLL/BurstGPT",
+    "citation": "BurstGPT, the workload AI Perf ships as its bursty public dataset",
+    "license": "CC-BY-4.0",
+    "cache_file": "burstgpt_1_part.csv",
+    "cache_sha256": "358d5e75f24b6d76446b1174ff92e67aa7c6930a2d0b4989d39761d9d3187809",
+    "window": "the first 600 rows at or after 824,947 s, the densest burst in the prefix",
+    "rows": 600,
+    "first_arrival_s": 0.0,
+    "last_arrival_s": 54.0,
+    "mean_rate_per_min": 666.67,
+    "input_tokens": {
+      "min": 57,
+      "mean": 134.2,
+      "max": 3089
+    },
+    "output_tokens": {
+      "min": 3,
+      "mean": 8.1,
+      "max": 326
+    },
+    "service_classes": [
+      "api",
+      "conversation"
+    ],
+    "dropped": {
+      "missing": 1,
+      "truncated": 0,
+      "out_of_order": 0
+    }
+  }
+]

@@ -1,0 +1,39 @@
+GenAIInferenceSim 1.0.1 | experiment "azure-conv"
+------------------------------------------------------------------------------
+simulated duration   : 210.000 s per repetition
+repetitions          : 1, seed 1
+model                : azure-conv (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 1
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : trace, model azure-conv
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            600       600   1.0000    0.0246    0.0939    3.9139   0.00942     0.0000    747.1  99989.16
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            600    0.0249    0.0246    0.0386    0.0705    0.0939    0.1600         n/a
+e2e_s             600    1.7189    1.4924    3.0936    3.4872    3.9139    4.5555         n/a
+tpot_s            600    0.0064    0.0063    0.0081    0.0086    0.0094    0.0160         n/a
+mean_itl_s        600    0.0064    0.0063    0.0081    0.0086    0.0094    0.0160         n/a
+queueing_s        600    0.0047    0.0030    0.0073    0.0173    0.0435    0.0828         n/a
+prefill_s         600    0.0202    0.0203    0.0270    0.0584    0.0882    0.0932         n/a
+decode_s          600    0.2093    0.1988    0.3898    0.4894    0.7613    1.0329         n/a
+
+mean over 1 repetition(s): completed 600.0 +- 0.0, goodput 0.0000 +- 0.0000, tokens/s 747.1 +- 0.0, utilisation 0.656 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+default              600         -         -         -         -
+
+replica 0 (azure-conv on gpu-80g): 1392 prefill steps, 23341 iterations, batch mean 6.70 peak 25, preemptions 0, cache refusals 0, stalls 0, peak cache 21.5% of 8059 blocks, utilisation 65.6%, energy 99989.157 J
+
+Artifacts written under target\trace-replays/azure-conv

@@ -1,0 +1,5 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+kimi-conversation,1,default,ttft,600,600,0,0,NaN
+kimi-conversation,1,default,e2e,600,600,0,0,NaN
+kimi-conversation,1,default,tpot,600,600,0,0,NaN
+kimi-conversation,1,default,all,600,600,0,0,NaN

@@ -13,6 +13,7 @@ check the claim.
 | [Policies](policies.md) | Admission, routing and scheduling rules, including the oracle modes | You are comparing scheduling or admission strategies |
 | [Metrics and artifacts](metrics.md) | Definitions, SLO accounting, CSV schemas, console layout, invariants | You are reading or plotting a result |
 | [Trace replay](traces.md) | The trace format, time scaling, and how a public trace maps onto it | You want to replay real traffic |
+| [Real trace replays](../examples/real-traces/README.md) | The four committed public windows, their conversions, the measured results and the limits | You want evidence under measured traffic, or you are re-running the replays |
 | [Reproducing results](reproducing.md) | Build, test, sweeps, determinism, environment | You are checking a published number |
 
 Three reading paths:

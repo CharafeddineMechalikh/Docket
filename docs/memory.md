@@ -79,7 +79,7 @@ There are three places where memory is asked for:
 
 | Point | What is reserved | If refused |
 |---|---|---|
-| Prefill chunk | The tokens the chunk will cache | `cache_refusals++`, the request is suspended back to the queue, keeping its cached chunks |
+| Prefill chunk | The tokens the chunk will cache | `cache_refusals++`, the request is suspended back to the queue, keeping its cached chunks until a stall releases them |
 | Decode iteration, per sequence | One token, because the next generated token needs a slot | `cache_refusals++`, that sequence is left out of the iteration |
 | Admission, `cache-capacity` policy | The predicted final context plus headroom | The request is rejected before any GPU work |
 
@@ -97,7 +97,10 @@ When no prefill chunk and no decode iteration can be scheduled, the replica trie
 
 ```mermaid
 flowchart TD
-  P[No step can run] --> R{Any sequence running?}
+  P[No step can run] --> W{Queued requests hold cached chunks?}
+  W -->|yes, once| L[Release their blocks and give the batch first refusal]
+  L --> P
+  W -->|no| R{Any sequence running?}
   R -->|no| S[stalled_steps++, device idles]
   R -->|yes| A{Preemption enabled?}
   A -->|no| S
@@ -105,6 +108,14 @@ flowchart TD
   V --> X[Release its blocks, clear its cache, requeue it]
   X --> P
 ```
+
+The release at the stall is the escape from a pool held by suspended prefills. A suspended
+prefill keeps the chunks it already cached, which is useful when it is rescheduled, but if enough
+of them sit in the queue they can hold every block while the running batch needs one more block to
+continue. Prefill cannot reserve, decode cannot progress, and preemption has no running victim.
+Releasing the queued caches once, and letting the batch take the first refusal on the freed
+blocks, keeps the pool live without changing the ordinary case; the regression test
+`aTraceWhoseSuspendedPrefillsFillTheCacheStillCompletesEveryRequest` pins it.
 
 A preempted sequence:
 

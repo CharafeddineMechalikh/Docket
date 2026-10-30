@@ -1,0 +1,40 @@
+GenAIInferenceSim 1.0.1 | experiment "burstgpt"
+------------------------------------------------------------------------------
+simulated duration   : 120.000 s per repetition
+repetitions          : 1, seed 1
+model                : burstgpt (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 1
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : trace, model burstgpt
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            600       600   1.0000    0.0295    0.1151    0.8859   0.06006     0.0000     40.3  16756.64
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            600    0.0367    0.0295    0.0904    0.1030    0.1151    0.1236         n/a
+e2e_s             600    0.1013    0.0676    0.1294    0.1389    0.8859    1.6874         n/a
+tpot_s            600    0.0184    0.0148    0.0413    0.0516    0.0601    0.0645         n/a
+mean_itl_s        600    0.0184    0.0148    0.0413    0.0516    0.0601    0.0645         n/a
+queueing_s        600    0.0311    0.0253    0.0819    0.0984    0.1109    0.1193         n/a
+prefill_s         600    0.0056    0.0042    0.0042    0.0042    0.0645    0.0698         n/a
+decode_s          600    0.0219    0.0008    0.0065    0.0093    0.7444    1.4925         n/a
+
+mean over 1 repetition(s): completed 600.0 +- 0.0, goodput 0.0000 +- 0.0000, tokens/s 40.3 +- 0.0, utilisation 0.138 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+api                  599         -         -         -         -
+conversation           1         -         -         -         -
+
+replica 0 (burstgpt on gpu-80g): 671 prefill steps, 2825 iterations, batch mean 1.50 peak 20, preemptions 0, cache refusals 0, stalls 0, peak cache 3.2% of 8059 blocks, utilisation 13.8%, energy 16756.642 J
+
+Artifacts written under target\trace-replays/burstgpt

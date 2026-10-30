@@ -243,8 +243,8 @@ public class ReplicaServer extends SimEntity {
 	 * <p>
 	 * The loop keeps trying because a refusal is local: a prefill that the cache stopped must not
 	 * block a decode iteration that has room, and a step that the batch limit stopped must not block
-	 * the next iteration. Every branch either schedules a step, removes a request, or ends the loop,
-	 * so it cannot spin.
+	 * the next iteration. Every branch either schedules a step, removes a request, releases a cache
+	 * or ends the loop, and the release happens at most once, so it cannot spin.
 	 */
 	protected void pump() {
 		if (isBusy())
@@ -253,6 +253,7 @@ public class ReplicaServer extends SimEntity {
 		// Each retry of the loop below drops one refused head from the queue, so the size of the
 		// queue bounds the number of retries a healthy configuration can need.
 		int retries = waiting.size();
+		boolean releasedWaiting = false;
 		while (true) {
 			if (waiting.isEmpty() && running.isEmpty()) {
 				chargeIdleUntil(clock);
@@ -263,15 +264,20 @@ public class ReplicaServer extends SimEntity {
 			if (startDecodeIteration())
 				return;
 			if (running.isEmpty()) {
-				if (retries-- <= 0) {
-					stalledSteps++;
-					chargeIdleUntil(clock);
-					return;
-				}
+				if (retries-- > 0)
+					continue;
+			} else if (spec.isAllowPreemption() && preemptOneVictim()) {
 				continue;
 			}
-			if (spec.isAllowPreemption() && preemptOneVictim())
+			if (!releasedWaiting && releaseWaitingCaches()) {
+				releasedWaiting = true;
+				retries = waiting.size();
+				// The batch gets the first refusal on the blocks just released, otherwise the head
+				// of the queue takes them back before a single token is emitted.
+				if (startDecodeIteration())
+					return;
 				continue;
+			}
 			stalledSteps++;
 			chargeIdleUntil(clock);
 			return;
@@ -366,6 +372,31 @@ public class ReplicaServer extends SimEntity {
 		waiting.add(request);
 		waitingDirty = true;
 		pendingWorkByRequest.put(request.getRequestId(), predictedWaitingWork(request));
+	}
+
+	/**
+	 * Gives back the cached chunks of the queued requests, which is the way out of a full queue.
+	 * <p>
+	 * A suspended prefill keeps its blocks so that a resumed prompt is not recomputed. If several
+	 * suspended requests together fill the pool while nothing runs, every one of them is refused
+	 * for lack of the very blocks it holds, and the replica would idle with its cache full. No
+	 * sequence can be preempted at that point, because preemption draws its victims from the
+	 * running set. Releasing the queues' caches is the last resort that lets the head start again,
+	 * at the cost of recomputing prompts that had made partial progress.
+	 *
+	 * @return {@code true} when at least one request gave its cache back
+	 */
+	protected boolean releaseWaitingCaches() {
+		boolean released = false;
+		for (InferenceRequest request : waiting) {
+			if (request.getCachedTokens() <= 0)
+				continue;
+			pool.release(request.getRequestId());
+			request.setCachedTokens(0);
+			request.setAllocatedBlocks(0);
+			released = true;
+		}
+		return released;
 	}
 
 	/**

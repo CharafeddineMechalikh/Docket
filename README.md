@@ -23,6 +23,7 @@ Contents:
 - [Requirements and build](#requirements-and-build)
 - [Quick start](#quick-start)
 - [The two committed scenarios](#the-two-committed-scenarios)
+- [Real trace replays](#real-trace-replays)
 - [How the simulator works](#how-the-simulator-works)
 - [Configuration reference](#configuration-reference)
 - [Policies](#policies)
@@ -72,7 +73,8 @@ Supported today:
   prefill and decode time;
 - energy from a two-level power model (idle plus active), integrated over simulated time;
 - per-service-class SLO attainment and goodput;
-- five arrival patterns, sixteen length distributions and CSV trace replay;
+- five arrival patterns, sixteen length distributions and CSV trace replay, with four public serving
+  traces replayed under [examples/real-traces](examples/real-traces/README.md);
 - a strict properties loader, a CLI, and reproducible CSV, JSONL and console artifacts.
 
 Not in this stage:
@@ -81,9 +83,7 @@ Not in this stage:
 - disaggregated prefill and decode on separate pools;
 - calibration of the roofline or power model against a real engine or accelerator;
 - speculative decoding, prefix caching across requests, or quantized-kernel modelling beyond the
-  scalar byte width;
-- a public provider trace as a committed workload (the replay path exists, see
-  [Trace replay](#trace-replay)).
+  scalar byte width.
 
 ## Requirements and build
 
@@ -98,11 +98,11 @@ cd GenAIInferenceSim
 mvn clean package
 ```
 
-This produces `target/genai-inference-sim-1.0.0.jar` and fills `target/lib/` with the runtime
+This produces `target/genai-inference-sim-1.0.1.jar` and fills `target/lib/` with the runtime
 dependencies, so the jar is runnable on its own:
 
 ```bash
-java -jar target/genai-inference-sim-1.0.0.jar scenarios/single-gpu-poisson.properties
+java -jar target/genai-inference-sim-1.0.1.jar scenarios/single-gpu-poisson.properties
 ```
 
 Running from loose classes works too:
@@ -116,14 +116,14 @@ java -cp "target/classes:target/lib/*" com.mechalikh.genaism.cli.Main \
 
 ```bash
 mvn -q package
-java -jar target/genai-inference-sim-1.0.0.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
+java -jar target/genai-inference-sim-1.0.1.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
 ```
 
 The console report starts with what ran and how far it can be trusted, then the per-repetition
 table:
 
 ```text
-GenAIInferenceSim 1.0.0 | experiment "loaded-7b-memory-pressure"
+GenAIInferenceSim 1.0.1 | experiment "loaded-7b-memory-pressure"
 ------------------------------------------------------------------------------
 simulated duration   : 30.000 s per repetition
 repetitions          : 3, seed 1
@@ -200,6 +200,28 @@ these is a distinct mechanism the engine exercises.
 Both tables are arithmetic means over the three repetitions where the console prints a mean, and
 raw repetition rows where it prints rows. The values were produced by the committed code and
 scenarios; see [Reproducing the published numbers](#reproducing-the-published-numbers).
+
+## Real trace replays
+
+`examples/real-traces/` replays four public traces through the same engine: Azure's 2023
+conversation trace, the Qwen-Bailian trace, the Mooncake conversation trace recorded on Kimi
+traffic, and BurstGPT, the bursty dataset NVIDIA's AI Perf replays. Each is cut to a committed
+600-request window with a converter, a scenario and a SHA-256 provenance record, so the replays
+need no download. The traffic is measured; the latencies and the energy are not, because the
+device and the cost model stay synthetic.
+
+| Trace | Completed | TTFT mean / p99 (s) | E2E mean / p99 (s) | Output tok/s | Energy (Wh) | Batch mean / peak |
+|---|---|---|---|---|---|---|
+| Azure conversation | 600/600 | 0.0249 / 0.0939 | 1.7189 / 3.9139 | 747.1 | 27.77 | 6.70 / 25 |
+| Qwen-Bailian trace A | 600/600 | 0.0476 / 0.2797 | 3.3981 / 15.3847 | 812.6 | 40.28 | 8.97 / 29 |
+| Mooncake / Kimi | 600/600 | 0.6361 / 5.7174 | 3.1578 / 17.5101 | 325.8 | 482.99 | 0.77 / 2 |
+| BurstGPT | 600/600 | 0.0367 / 0.1151 | 0.1013 / 0.8859 | 40.3 | 4.65 | 1.50 / 20 |
+
+`run_replays.sh` runs the four scenarios and `verify_replays.py` reconciles every request row
+against the recorded window, so a run that loses, duplicates or rescales an arrival fails. All
+four reconcile with a maximum arrival difference of 0 s. The Kimi window also found and fixed a
+scheduler liveness defect under long-context memory pressure; both are documented in
+[examples/real-traces/README.md](examples/real-traces/README.md).
 
 ## How the simulator works
 
@@ -530,6 +552,10 @@ workload.prediction=trace-observed
 intensity is replayed at another. The source file and the transformations applied are echoed into
 `config.txt` as a `# Trace:` line.
 
+The four committed windows under [examples/real-traces](examples/real-traces/README.md) show the
+whole path: a downloader, a converter that records its window and SHA-256 in `manifest.json`, one
+scenario per trace and a reconciliation script that compares the run with the recording.
+
 ### `policy.*`
 
 | Key | Default | Meaning |
@@ -610,15 +636,15 @@ Examples:
 
 ```bash
 # three repetitions, artifacts under results/loaded
-java -jar target/genai-inference-sim-1.0.0.jar \
+java -jar target/genai-inference-sim-1.0.1.jar \
     -r 3 -o results scenarios/loaded-7b-memory-pressure.properties
 
 # change one knob without editing the file
-java -jar target/genai-inference-sim-1.0.0.jar \
+java -jar target/genai-inference-sim-1.0.1.jar \
     -D replica.maxBatchSize=8 scenarios/loaded-7b-memory-pressure.properties
 
 # quiet run for scripts
-java -jar target/genai-inference-sim-1.0.0.jar -q scenarios/single-gpu-poisson.properties
+java -jar target/genai-inference-sim-1.0.1.jar -q scenarios/single-gpu-poisson.properties
 ```
 
 Exit codes:
@@ -762,12 +788,12 @@ sides carry the same assumptions. Using it to predict a real GPU is not sound un
 calibrated against one. The provenance lattice exists so that a calibrated run cannot be confused
 with an uncalibrated one.
 
-No provider trace (OpenAI, Anthropic, Gemini or otherwise) is used anywhere in this repository.
-The committed scenarios are parametric. The replay path described under
-[Trace replay](#trace-replay) is the intended way to change that, and a public trace such as the
-Azure LLM inference trace, BurstGPT or ShareGPT conversations would map onto its columns
-directly. Until such a scenario is committed and its numbers measured, no result here should be
-read as reproducing production traffic.
+No provider trace is used to claim a latency, an energy figure or a calibrated result. Four public
+traces are replayed under [examples/real-traces](examples/real-traces/README.md), and what they
+make measured is the traffic: arrivals and both lengths. The time a step takes still comes from
+the uncalibrated roofline model on a synthetic device, so those runs print `overall provenance :
+synthetic` like every other run here, and no result in this repository should be read as
+reproducing production latency.
 
 ## Reproducing the published numbers
 
@@ -791,12 +817,21 @@ the same values with the same column order.
 The scenarios in this README were produced with:
 
 ```bash
-java -jar target/genai-inference-sim-1.0.0.jar -r 3 scenarios/single-gpu-poisson.properties
-java -jar target/genai-inference-sim-1.0.0.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
+java -jar target/genai-inference-sim-1.0.1.jar -r 3 scenarios/single-gpu-poisson.properties
+java -jar target/genai-inference-sim-1.0.1.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
 ```
 
 on a Windows host with a JDK 23 runtime, seed 1, with the committed build. The paper reports the
 arithmetic mean over the repetitions; the console tables above report the individual repetitions.
+
+The real trace replays are regenerated and reconciled with:
+
+```bash
+bash examples/real-traces/run_replays.sh      # -> target/trace-replays, ends with REPLAY_CHECK OK
+```
+
+The captures archived under `examples/real-traces/results/` came from that script on the same
+host, and `examples/real-traces/data/manifest.json` records the SHA-256 of every upstream file.
 
 ## Testing
 
@@ -809,12 +844,12 @@ The suite runs on JUnit 5 against the real engine, with no stubs and no simulate
 | Layer | Tests | What it establishes |
 |---|---|---|
 | Unit | 78 | Request lifecycle and latency math, the roofline model against hand-computed anchors, paged-cache rounding and refusals, the energy integral, percentile and SLO helpers, the strict settings reader |
-| Integration | 5 | The same seed reproduces a run, a different repetition salt changes it, utilisation rises with offered load |
+| Integration | 6 | The same seed reproduces a run, a different repetition salt changes it, utilisation rises with offered load, and a trace whose suspended prefills fill the cache still completes every request |
 | Invariant | 2 | Nineteen assertions re-derive the accounting from the exposed counters of a finished run |
 | Regression | 3 | The two scenarios are pinned to freshly measured goldens |
 | Command line | 16 | Exit codes, `-D` overrides, artifact layout, the unused-key warning, JSON quoting |
 
-Total: 104 tests. A full run takes about ten seconds on the development machine.
+Total: 105 tests. A full run takes about ten seconds on the development machine.
 
 The invariant layer is the important one for published results. The result object verifies itself
 when it is built: every arrived request is terminal exactly once, completed requests do not
@@ -832,12 +867,12 @@ GenAIInferenceSim/
 ├── README.md
 ├── LICENSE                       GPL-3.0
 ├── scenarios/                    the two committed, runnable scenarios
+├── examples/real-traces/         public trace windows, scenarios, converter and replay check
 ├── scripts/
 │   ├── run_sweeps.sh             the 19-configuration sweep driver
 │   └── plot_sweeps.py            figures from the sweep output
 ├── docs/                         detailed reference pages (see docs/README.md)
-├── configs/                      reserved for reusable fragments (traces, hardware, models)
-├── examples/                     reserved for worked examples
+├── configs/                      reserved for reusable fragments (hardware, models)
 ├── results/                      reserved for published artifact sets
 └── src/
     ├── main/java/com/mechalikh/genaism/
@@ -855,8 +890,9 @@ GenAIInferenceSim/
         ├── unit/ integration/ invariant/ regression/ cli/ support/
 ```
 
-`configs/`, `examples/` and `results/` are placeholders kept in the tree for the next stage; they
-are not used by the build or by the tests.
+`configs/` and `results/` are placeholders kept in the tree for the next stage; they are not used
+by the build or by the tests. `examples/real-traces/` is self-contained and is driven by its own
+scripts, not by Maven.
 
 ## Extending the simulator
 
@@ -883,19 +919,19 @@ sum correctly fails the build.
 
 Ordered by what would most improve the evidence, not by effort:
 
-1. Run one public trace (Azure LLM inference trace, BurstGPT or ShareGPT) through the existing
-   replay path, commit the converter and the scenario, and report the numbers next to the
-   synthetic sweeps.
-2. Calibrate the roofline coefficients against one serving engine on one device, and label the
-   result `measured`.
+1. Calibrate the roofline coefficients against one serving engine on one device, and label the
+   result `measured`. The trace replays already fix the traffic; this fixes the speed.
+2. Replay more than 600 rows, and add a workload whose trace states SLO targets, so goodput is
+   measured rather than reported as not applicable.
 3. Multi-GPU and multi-node topologies, with tensor and pipeline parallelism.
 4. Disaggregated prefill and decode on separate pools.
-5. Prefix caching across requests, so a shared prompt prefix is not recomputed.
+5. Prefix caching across requests, so a shared prompt prefix is not recomputed and the session
+   identifiers recorded by the Qwen and Mooncake traces can be routed.
 6. An HTTP or gRPC front end, so the simulator can sit behind a load generator.
 
-Items 1 and 2 change what the numbers mean; the rest extend what can be simulated. Until 1 and 2
-are done, every result in this repository is a statement about the simulator, not about a
-deployment.
+Calibration changes what the numbers mean; the rest extends what can be simulated. Until it is
+done, every result in this repository, including the trace replays, is a statement about the
+simulator, not about a deployment.
 
 ## License and citation
 
@@ -909,7 +945,7 @@ If you use it in academic work, cite the repository and the engine:
   author  = {Mechalikh, Charafeddine},
   title   = {{GenAIInferenceSim}: a discrete-event simulator for generative AI inference serving},
   year    = {2026},
-  version = {1.0.0},
+  version = {1.0.1},
   url     = {https://github.com/CharafeddineMechalikh/GenAIInferenceSim},
   license = {GPL-3.0}
 }

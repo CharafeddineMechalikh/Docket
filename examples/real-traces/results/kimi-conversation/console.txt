@@ -1,0 +1,70 @@
+GenAIInferenceSim 1.0.1 | experiment "kimi-conversation"
+------------------------------------------------------------------------------
+simulated duration   : 600.000 s per repetition
+repetitions          : 1, seed 1
+model                : kimi-conversation (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 32
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : trace, model kimi-conversation
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            600       600   1.0000    0.2520    5.7174   17.5101   0.06550     0.0000    325.8 1738766.76
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            600    0.6361    0.2520    1.1814    2.5487    5.7174   32.5138         n/a
+e2e_s             600    3.1578    2.5728    5.3522    7.2284   17.5101   36.7625         n/a
+tpot_s            596    0.0114    0.0068    0.0140    0.0213    0.0655    0.5255         n/a
+mean_itl_s        596    0.0114    0.0068    0.0140    0.0213    0.0655    0.5255         n/a
+queueing_s        600    0.2544    0.0000    0.5042    0.9147    4.2655   30.0627         n/a
+prefill_s         600    0.4038    0.1365    0.8414    1.2581    4.2655   19.8272         n/a
+decode_s          596    1.6037    1.3664    3.0674    3.8536    6.5032   27.7252         n/a
+
+mean over 1 repetition(s): completed 600.0 +- 0.0, goodput 0.0000 +- 0.0000, tokens/s 325.8 +- 0.0, utilisation 0.062 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+default              600         -         -         -         -
+
+replica 0 (kimi-conversation on gpu-80g-1): 1454 prefill steps, 12303 iterations, batch mean 1.49 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 88.1% of 8059 blocks, utilisation 19.7%, energy 106958.944 J
+replica 1 (kimi-conversation on gpu-80g-2): 1402 prefill steps, 13849 iterations, batch mean 1.49 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 61.1% of 8059 blocks, utilisation 18.2%, energy 101029.621 J
+replica 2 (kimi-conversation on gpu-80g-3): 1234 prefill steps, 14453 iterations, batch mean 1.45 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 42.4% of 8059 blocks, utilisation 17.7%, energy 99010.669 J
+replica 3 (kimi-conversation on gpu-80g-4): 1377 prefill steps, 13545 iterations, batch mean 1.36 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 98.7% of 8059 blocks, utilisation 19.4%, energy 105552.451 J
+replica 4 (kimi-conversation on gpu-80g-5): 1355 prefill steps, 14023 iterations, batch mean 1.50 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 84.7% of 8059 blocks, utilisation 18.3%, energy 101282.306 J
+replica 5 (kimi-conversation on gpu-80g-6): 1309 prefill steps, 13014 iterations, batch mean 1.44 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 82.7% of 8059 blocks, utilisation 18.2%, energy 101124.596 J
+replica 6 (kimi-conversation on gpu-80g-7): 1194 prefill steps, 11383 iterations, batch mean 1.49 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 77.5% of 8059 blocks, utilisation 19.1%, energy 104680.282 J
+replica 7 (kimi-conversation on gpu-80g-8): 1255 prefill steps, 9425 iterations, batch mean 1.32 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 63.9% of 8059 blocks, utilisation 15.4%, energy 89915.416 J
+replica 8 (kimi-conversation on gpu-80g-9): 855 prefill steps, 9597 iterations, batch mean 1.52 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 66.5% of 8059 blocks, utilisation 12.7%, energy 79714.865 J
+replica 9 (kimi-conversation on gpu-80g-10): 730 prefill steps, 7712 iterations, batch mean 1.39 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 42.1% of 8059 blocks, utilisation 9.6%, energy 67618.415 J
+replica 10 (kimi-conversation on gpu-80g-11): 621 prefill steps, 5476 iterations, batch mean 1.35 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 68.5% of 8059 blocks, utilisation 8.2%, energy 61807.390 J
+replica 11 (kimi-conversation on gpu-80g-12): 380 prefill steps, 5156 iterations, batch mean 1.20 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 48.8% of 8059 blocks, utilisation 9.5%, energy 67126.417 J
+replica 12 (kimi-conversation on gpu-80g-13): 115 prefill steps, 1895 iterations, batch mean 1.20 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 12.7% of 8059 blocks, utilisation 2.0%, energy 37707.189 J
+replica 13 (kimi-conversation on gpu-80g-14): 897 prefill steps, 1774 iterations, batch mean 1.20 peak 2, preemptions 1, cache refusals 490, stalls 0, peak cache 100.0% of 8059 blocks, utilisation 7.7%, energy 59859.868 J
+replica 14 (kimi-conversation on gpu-80g-15): 143 prefill steps, 1148 iterations, batch mean 1.34 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 29.4% of 8059 blocks, utilisation 1.7%, energy 36799.976 J
+replica 15 (kimi-conversation on gpu-80g-16): 103 prefill steps, 981 iterations, batch mean 1.35 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 30.4% of 8059 blocks, utilisation 1.4%, energy 35607.174 J
+replica 16 (kimi-conversation on gpu-80g-17): 15 prefill steps, 460 iterations, batch mean 1.46 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 5.8% of 8059 blocks, utilisation 0.4%, energy 31596.382 J
+replica 17 (kimi-conversation on gpu-80g-18): 2 prefill steps, 479 iterations, batch mean 1.00 peak 1, preemptions 0, cache refusals 0, stalls 0, peak cache 1.1% of 8059 blocks, utilisation 0.4%, energy 31374.802 J
+replica 18 (kimi-conversation on gpu-80g-19): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 19 (kimi-conversation on gpu-80g-20): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 20 (kimi-conversation on gpu-80g-21): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 21 (kimi-conversation on gpu-80g-22): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 22 (kimi-conversation on gpu-80g-23): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 23 (kimi-conversation on gpu-80g-24): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 24 (kimi-conversation on gpu-80g-25): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 25 (kimi-conversation on gpu-80g-26): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 26 (kimi-conversation on gpu-80g-27): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 27 (kimi-conversation on gpu-80g-28): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 28 (kimi-conversation on gpu-80g-29): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 29 (kimi-conversation on gpu-80g-30): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 30 (kimi-conversation on gpu-80g-31): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+replica 31 (kimi-conversation on gpu-80g-32): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 8059 blocks, utilisation 0.0%, energy 30000.000 J
+
+Artifacts written under target\trace-replays/kimi-conversation

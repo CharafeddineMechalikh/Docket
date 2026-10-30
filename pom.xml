@@ -5,7 +5,7 @@
 
 	<groupId>io.github.charafeddinemechalikh</groupId>
 	<artifactId>genai-inference-sim</artifactId>
-	<version>1.0.0</version>
+	<version>1.0.1</version>
 	<name>GenAIInferenceSim</name>
 	<description>Research-grade discrete-event simulator for generative AI (LLM) inference serving, built on the PureEdgeSim engine</description>
 	<url>https://github.com/CharafeddineMechalikh/GenAIInferenceSim</url>
