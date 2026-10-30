@@ -5,7 +5,7 @@
 
 	<groupId>io.github.charafeddinemechalikh</groupId>
 	<artifactId>genai-inference-sim</artifactId>
-	<version>0.1.0</version>
+	<version>1.0.0</version>
 	<name>GenAIInferenceSim</name>
 	<description>Research-grade discrete-event simulator for generative AI (LLM) inference serving, built on the PureEdgeSim engine</description>
 	<url>https://github.com/CharafeddineMechalikh/GenAIInferenceSim</url>
@@ -59,6 +59,9 @@
 							<addClasspath>true</addClasspath>
 							<classpathLayoutType>simple</classpathLayoutType>
 							<classpathPrefix>lib/</classpathPrefix>
+							<!-- Stamps the artifact with its own version, which the CLI and the
+							artifacts print. -->
+							<addDefaultImplementationEntries>true</addDefaultImplementationEntries>
 						</manifest>
 					</archive>
 				</configuration>
@@ -92,6 +95,30 @@
 				<configuration>
 					<mainClass>${mainClass}</mainClass>
 				</configuration>
+			</plugin>
+
+			<!-- Every public type and member carries Javadoc, so the API pages are complete.
+			The missing-tag and HTML checks are relaxed because the GPL header of each file
+			contains a literal URL in angle brackets, which the strict HTML check reads as a
+			malformed tag. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+				<version>3.3.2</version>
+				<configuration>
+					<doclint>all,-missing,-html</doclint>
+					<quiet>true</quiet>
+					<notimestamp>true</notimestamp>
+					<source>11</source>
+				</configuration>
+				<executions>
+					<execution>
+						<id>attach-javadocs</id>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>

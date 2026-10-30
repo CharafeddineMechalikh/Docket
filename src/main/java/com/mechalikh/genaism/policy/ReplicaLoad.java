@@ -75,22 +75,63 @@ public final class ReplicaLoad {
 		this.pendingWorkSeconds = pendingWorkSeconds;
 	}
 
+	/**
+	 * Returns the identifier of the replica the snapshot was taken on.
+	 * <p>
+	 * It is the engine identifier, the same value a routing policy returns to choose a replica.
+	 * The load is a snapshot read when the policy asked for it, not a live handle on the server:
+	 * the numbers keep the instant they were taken and never follow later changes.
+	 *
+	 * @return the replica identifier
+	 */
 	public int replicaId() {
 		return replicaId;
 	}
 
+	/**
+	 * Returns how many requests were queued for their prefill in the snapshot.
+	 * <p>
+	 * A queued request holds no sequence yet; it waits for a decode slot and for the cache of
+	 * its prompt. The count is taken at one instant, so it does not follow the queue afterwards.
+	 *
+	 * @return waiting requests, zero or more
+	 */
 	public int waitingRequests() {
 		return waitingRequests;
 	}
 
+	/**
+	 * Returns how many sequences were generating tokens in the snapshot.
+	 * <p>
+	 * Each one is a request past its prefill that occupies a slot of the current batch, so the
+	 * value is the batch size the device was serving at that instant.
+	 *
+	 * @return sequences decoding, zero or more
+	 */
 	public int runningSequences() {
 		return runningSequences;
 	}
 
+	/**
+	 * Returns how many tokens the cache of the replica could still hand out in the snapshot.
+	 * <p>
+	 * Tokens held by the running sequences and by the requests already promised a reservation
+	 * are excluded, so the value is what an admitted request could actually claim.
+	 *
+	 * @return free cache tokens, between zero and {@link #totalCacheTokens()}
+	 */
 	public int freeCacheTokens() {
 		return freeCacheTokens;
 	}
 
+	/**
+	 * Returns the cache capacity of the replica, in tokens.
+	 * <p>
+	 * The capacity is fixed for the run, so every snapshot of one replica reports the same
+	 * value and the free tokens can be read as a fraction of it.
+	 *
+	 * @return cache capacity in tokens, at least the free tokens
+	 */
 	public int totalCacheTokens() {
 		return totalCacheTokens;
 	}
@@ -128,6 +169,12 @@ public final class ReplicaLoad {
 		return freeCacheTokens >= tokens;
 	}
 
+	/**
+	 * Returns a one-line summary with the replica, the queue and batch sizes, the free cache as
+	 * a fraction of the capacity, and the pending work.
+	 *
+	 * @return the summary line
+	 */
 	@Override
 	public String toString() {
 		return "ReplicaLoad[" + replicaId + ", waiting " + waitingRequests + ", running " + runningSequences

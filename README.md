@@ -1,80 +1,153 @@
 # GenAIInferenceSim
 
-A discrete-event simulator for generative-AI (LLM) inference serving. You describe one GPU, one
-model and a stream of requests in a properties file; the simulator replays that stream tick by tick
-and returns request-level latency, batching, cache, energy and service-level statistics as CSV,
-JSONL and a console report.
+A discrete-event simulator for generative-AI (LLM) inference serving. You describe a model, a
+device and a stream of requests in a properties file; the simulator replays that stream tick by
+tick and returns request-level latency, batching, cache, energy and service-level statistics as
+CSV, JSONL and a console report.
 
-It is built on the [PureEdgeSim](https://github.com/CharafeddineMechalikh/PureEdgeSim) discrete-event
-engine, so the arrival process, the scheduling and the clock are the same machinery that drives
-edge-cloud experiments; what is new here is the serving model underneath it: prefill versus decode,
-continuous batching, chunked prefill, a paged KV cache, and preemption with recompute.
+It is built on the [PureEdgeSim](https://github.com/CharafeddineMechalikh/PureEdgeSim)
+discrete-event engine, so the clock, the event queue and the workload sampling are the same
+machinery used for edge-cloud experiments. What is new here is the serving model underneath: a
+prefill phase separated from a decode phase, continuous batching, chunked prefill, a paged KV
+cache with block rounding, and preemption with recompute.
 
 > **Read the numbers as a check of the mechanics, never as a prediction about hardware.** Every
 > figure this repository ships is produced by a synthetic, uncalibrated cost model and a synthetic
-> device. The simulator does not measure a real accelerator, and no scenario here should be quoted
-> as "what an H100 does". See [Provenance and limits](#provenance-and-limits).
+> device. The simulator does not measure a real accelerator, and no scenario here should be
+> quoted as "what an H100 does". See [Provenance and limits](#provenance-and-limits).
 
-## What it is for
+Contents:
 
-Serving an LLM is not one job, it is two: a **prefill** that processes the whole prompt in one
-pass and fills the KV cache, then a **decode** that emits one token at a time, re-reading the
-weights and the cache each step. A request spends time queued, then in prefill, then in many decode
-steps that may be batched with other requests, and it may be preempted and recomputed if the cache
-runs out. The knobs that decide how that plays out (batch ceiling, prefill chunk size, victim order,
-cache block size, admission policy) interact in ways that are expensive to probe on real hardware.
+- [Why it exists](#why-it-exists)
+- [Scope and status](#scope-and-status)
+- [Requirements and build](#requirements-and-build)
+- [Quick start](#quick-start)
+- [The two committed scenarios](#the-two-committed-scenarios)
+- [How the simulator works](#how-the-simulator-works)
+- [Configuration reference](#configuration-reference)
+- [Policies](#policies)
+- [Command line](#command-line)
+- [Artifacts](#artifacts)
+- [Metrics defined](#metrics-defined)
+- [Provenance and limits](#provenance-and-limits)
+- [Reproducing the published numbers](#reproducing-the-published-numbers)
+- [Testing](#testing)
+- [Project layout](#project-layout)
+- [Extending the simulator](#extending-the-simulator)
+- [Roadmap](#roadmap)
+- [License and citation](#license-and-citation)
 
-This simulator lets you ask "what happens to time-to-first-token when the cache fills and preemption
-starts, at this arrival rate, on a device with these limits?" and get a deterministic, reproducible
-answer in seconds, from a text file, without a GPU.
+The [documentation index](docs/README.md) collects the reference pages: architecture,
+configuration, cost model, memory and caching, policies, metrics and artifacts, trace replay, and
+reproduction.
 
-## Stage 1 scope
+## Why it exists
 
-This is Stage 1 of the project. It covers a single deterministic setup and stops there:
+Serving an LLM is not one job, it is two. A **prefill** reads the whole prompt in one pass and
+fills the KV cache. A **decode** emits one token at a time, re-reading the weights and the cache
+on every step. A request is queued, prefilled, then decoded in many steps that may be batched with
+other requests, and it may be preempted and recomputed when the cache runs out.
 
-- one device (GPU/accelerator) with roofline-limited prefill and decode;
-- continuous batching with a batch-token ceiling, and chunked prefill;
-- a paged KV cache with block round-up, and preemption-with-recompute when it fills;
-- request-level metrics: TTFT, TPOT, mean inter-token latency, end-to-end, and life-total queueing;
-- energy from a piecewise power model (idle plus active, integrated over time);
-- per-class SLO attainment and goodput;
-- a strict properties-file loader, a CLI, and reproducible artifacts.
+The knobs that decide how that plays out interact: batch ceiling, prefill chunk size, victim
+order, cache block size, admission policy, arrival rate. Probing them on real hardware is
+expensive and slow. This simulator answers questions of the form "what happens to time-to-first-token
+when the cache fills and preemption starts, at this arrival rate, on a device with these limits?"
+in seconds, from a text file, without a GPU, and with a deterministic answer that a reviewer can
+reproduce.
 
-Multi-GPU, multi-node, disaggregated prefill/decode, real engine calibration, and trace-driven
-replay against a serving stack are **not** in this stage.
+## Scope and status
 
-## Build and run
+This is Stage 1 of the project. It covers one deterministic, single-node deployment and stops
+there.
 
-Java 11 or newer and Maven are enough. The PureEdgeSim engine is resolved as a normal Maven
-dependency.
+Supported today:
+
+- one device type shared by all replicas, with roofline-limited prefill and decode;
+- several replicas of that device (`replicas.count`), with routing across them;
+- continuous batching with a sequence ceiling and a per-step token ceiling;
+- chunked prefill, so a long prompt can be interleaved with running decodes;
+- a paged KV cache with whole-block round-up, admission guards and cache accounting;
+- preemption with recompute, with three victim orders;
+- per-request metrics: TTFT, TPOT, mean and max inter-token latency, end-to-end, queueing,
+  prefill and decode time;
+- energy from a two-level power model (idle plus active), integrated over simulated time;
+- per-service-class SLO attainment and goodput;
+- five arrival patterns, sixteen length distributions and CSV trace replay;
+- a strict properties loader, a CLI, and reproducible CSV, JSONL and console artifacts.
+
+Not in this stage:
+
+- multi-GPU or multi-node topologies, tensor or pipeline parallelism;
+- disaggregated prefill and decode on separate pools;
+- calibration of the roofline or power model against a real engine or accelerator;
+- speculative decoding, prefix caching across requests, or quantized-kernel modelling beyond the
+  scalar byte width;
+- a public provider trace as a committed workload (the replay path exists, see
+  [Trace replay](#trace-replay)).
+
+## Requirements and build
+
+- Java 11 or newer. The bytecode target is 11; Maven here runs on JDK 17 and the console runs
+  quoted below use a JDK 23 runtime.
+- Maven 3.6 or newer.
+- No GPU. The PureEdgeSim engine is resolved as a normal Maven dependency.
 
 ```bash
-mvn -o clean package
+git clone https://github.com/CharafeddineMechalikh/GenAIInferenceSim.git
+cd GenAIInferenceSim
+mvn clean package
+```
+
+This produces `target/genai-inference-sim-1.0.0.jar` and fills `target/lib/` with the runtime
+dependencies, so the jar is runnable on its own:
+
+```bash
+java -jar target/genai-inference-sim-1.0.0.jar scenarios/single-gpu-poisson.properties
+```
+
+Running from loose classes works too:
+
+```bash
 java -cp "target/classes:target/lib/*" com.mechalikh.genaism.cli.Main \
     scenarios/single-gpu-poisson.properties
 ```
 
-The CLI takes a scenario file and a handful of overrides:
+## Quick start
 
-```text
-  -c, --scenario FILE     the scenario to run (or pass it as the last argument)
-  -o, --output DIR        override experiment.outputDir
-  -s, --seed N            override experiment.seed
-  -r, --repetitions N     override experiment.repetitions
-  -D key=value            set or override any scenario property
-  -q, --quiet             write the artifacts without the console report
+```bash
+mvn -q package
+java -jar target/genai-inference-sim-1.0.0.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
 ```
 
-The loader is strict: a key the code never reads is reported as a warning rather than silently
-ignored, because a scenario that sets `replica.maxBatchSize` but is running an ignored value means
-something other than what its author wrote. A run exits non-zero when the scenario does not load
-(`3`) or when the run fails an invariant (`4`), distinct from a usage error (`2`).
+The console report starts with what ran and how far it can be trusted, then the per-repetition
+table:
 
-## The two committed examples
+```text
+GenAIInferenceSim 1.0.0 | experiment "loaded-7b-memory-pressure"
+------------------------------------------------------------------------------
+simulated duration   : 30.000 s per repetition
+repetitions          : 3, seed 1
+model                : big-7b (7000.0M parameters, none), provenance synthetic
+device               : gpu-synthetic, provenance synthetic
+replicas             : 1
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : poisson, model big-7b
+------------------------------------------------------------------------------
+...
+```
 
-`scenarios/` holds two runnable scenarios. Both use the same invented 24 GB device; what differs is
-the model size and the arrival rate, and that difference is the whole point: it is what makes
-interesting mechanisms fire.
+Artifacts land in `<experiment.outputDir>/<experiment.name>/`. Both committed scenarios set
+`experiment.outputDir=target/experiments`, so this run writes
+`target/experiments/loaded-7b-memory-pressure/`; a scenario that does not set the key falls back
+to `output/`. `-o DIR` overrides the setting.
+
+## The two committed scenarios
+
+`scenarios/` holds two runnable scenarios. Both use the same invented 24 GiB device; what differs
+is the model size and the arrival rate, and that difference is the point: it makes the interesting
+mechanisms fire.
 
 | Scenario | Model | Arrivals | Regime it demonstrates |
 |---|---|---|---|
@@ -83,8 +156,8 @@ interesting mechanisms fire.
 
 ### Example 1: a light single-GPU run
 
-Six requests per minute for sixty seconds is about six arrivals, easily served by one replica. This
-run (3 repetitions, seed 1) freshly produced:
+Six requests per minute for sixty seconds is about six arrivals, easily served by one replica.
+Three repetitions with seed 1 produce:
 
 ```text
 rep   offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
@@ -93,14 +166,14 @@ rep   offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodp
 3         6         6   1.0000    0.0021    0.0048    0.1275   0.00047     1.0000     18.8   1264.76
 ```
 
-Everything completes, queueing is zero because nothing waits, and the device barely works
-(utilisation under 1%). This is the sanity case: it confirms a request is admitted, prefilled,
-decoded and accounted exactly once.
+Everything completes, nothing queues, and the device stays under one percent utilisation. This is
+the sanity case: it confirms that a request is admitted, prefilled, decoded and accounted exactly
+once.
 
 ### Example 2: memory pressure
 
-The 7 B weights leave only a small slice of the same 24 GB for the KV cache, and 120 arrivals per
-minute outrun the device. The freshly measured run shows the serving path under load:
+The 7 B weights leave a small slice of the same 24 GiB for the KV cache, and 120 arrivals per
+minute outrun the device. The same three repetitions produce:
 
 ```text
 rep   offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
@@ -117,14 +190,44 @@ preemptions 1, cache refusals 224, stalls 0, peak cache 100.0% of 1249 blocks, u
 energy 4485.046 J
 ```
 
-The batch ceiling is 32, but the cache fills long before that: peak occupancy hits 100% of 1249
-blocks and 224 allocations are refused, so the batch stops at 20. The cache is full, so a request
-that needs room preempts another (1 preemption), and because arrivals outrun the device the queue
-grows and time-to-first-token separates from the raw service time (p99 TTFT of 1.43 s against a
-0.05 s decode step). Goodput drops below 1 because the end-to-end target is missed under load. Every
-one of these is a distinct mechanism the engine exercises.
+The batch ceiling is 32, but the cache fills first: peak occupancy reaches 100% of 1249 blocks and
+224 allocations are refused, so the batch stops at 20. A request that needs room preempts another
+(one preemption in repetition 1), and because arrivals outrun the device the queue grows and
+time-to-first-token separates from the service time (p99 TTFT of 0.72 s against a decode step
+near 0.05 s). Goodput falls below 1 because the end-to-end target is missed under load. Each of
+these is a distinct mechanism the engine exercises.
 
-## How a request moves through the engine
+Both tables are arithmetic means over the three repetitions where the console prints a mean, and
+raw repetition rows where it prints rows. The values were produced by the committed code and
+scenarios; see [Reproducing the published numbers](#reproducing-the-published-numbers).
+
+## How the simulator works
+
+### Packages and the event flow
+
+```mermaid
+flowchart LR
+  CLI[CLI] --> CFG[config: Scenario and Settings]
+  CFG --> ENG[engine: InferenceService]
+  ENG --> WS[WorkloadSource]
+  ENG --> RS[ReplicaServer]
+  RS --> POL[policy: admission, routing, scheduling]
+  RS --> MEM[memory: GpuMemoryManager and KvCachePool]
+  RS --> COST[cost: RooflineAnalyticalCostModel]
+  RS --> PWR[power: GpuPowerModel]
+  RS --> MET[metrics: RequestRecorder]
+  MET --> REP[experiment: Experiment and Report]
+  REP --> OUT[CSV, JSONL, console]
+```
+
+`InferenceService` is the PureEdgeSim entity that owns the replicas and the workload source.
+`WorkloadSource` schedules one arrival event per request. Each arrival is offered to the routing
+policy, then to the admission policy, then either refused or placed in a replica queue.
+`ReplicaServer` runs the decode loop: it admits the head of the queue when the batch has room,
+prefills it (in chunks or in one step), and folds its decode into the running batch on every
+iteration. `Report` aggregates the per-request records into the artifacts.
+
+### Request lifecycle
 
 ```mermaid
 flowchart LR
@@ -138,104 +241,676 @@ flowchart LR
   E --> G[Complete]
 ```
 
-The scheduler picks the head of the queue, prefills it (possibly in chunks), then folds its decode
-into the running batch each step. When the cache cannot give a sequence another block, the victim
-policy chooses a sequence to evict; an evicted request returns to the queue and its prompt is
-recomputed on the way back. Admission, routing and scheduling are each pluggable strategies selected
-by name in the scenario file.
+State moves are guarded: a request cannot be queued and decoding at once, and a terminal state
+cannot be entered twice. A preempted request returns to the queue and its prompt is recomputed on
+the way back, which is why its life-total queueing time can exceed its TTFT.
 
-## What one step costs
+### What one step costs
 
 ```mermaid
 flowchart TD
-  S[One step] --> F[Flops / achieved TFLOPS]
-  S --> M[Bytes moved / memory bandwidth]
+  S[One step] --> F[Flops divided by achieved TFLOPS]
+  S --> M[Bytes moved divided by memory bandwidth]
   S --> O[Kernel launch overhead]
-  F --> X[Take the max]
+  F --> X[Take the maximum]
   M --> X
   X --> T[Add launch overhead = step time]
   O --> T
 ```
 
-Prefill flops scale with prompt length; decode flops are small but re-read the weights and the whole
-KV cache every emitted token, which is why decode is memory-bound and batching helps it. The step
-time is the roofline maximum of the compute term and the memory term, plus a launch-overhead constant
-that dominates tiny batches. Which term binds is reported so a slow step is attributed to the right
-cause rather than guessed at.
-
-## Metrics defined
-
-- **TTFT** (`ttft_s`): arrival to first emitted token.
-- **TPOT** (`tpot_s`): wall-clock `(last - first) / (tokens - 1)` over the decode phase.
-- **Mean ITL** (`mean_itl_s`): mean of the per-iteration gaps.
-- **End-to-end** (`e2e_s`): arrival to last token; only defined for completed requests.
-- **Queueing** (`queueing_s`): life-total time spent waiting, summed over every queue episode, so it
-  can exceed TTFT once a request is preempted mid-decode and re-queued after its first token.
-- **Goodput**: the fraction of offered requests that finish within their stated service-level targets.
-
-Percentiles use linear interpolation between ranks (the NumPy default), so the console and CSV agree
-with what a Pandas/NumPy reader would compute from the same rows.
-
-## Artifacts
-
-Each run writes, under the output directory and one folder per repetition:
+The model is a roofline:
 
 ```text
-summary.csv          one row per repetition: every aggregate above
-slo.csv              attainment per service class and objective
-config.txt           the effective configuration with the provenance of each input
-rep01/requests.csv   one row per request: timestamps, states, tokens, latencies, energy, SLO flags
-rep01/requests.jsonl the same rows as JSON lines
-rep01/samples.csv    periodic device samples: occupancy, batch size, utilisation
+step_seconds = max(flops / achieved_flops_per_second,
+                   bytes / memory_bandwidth_bytes_per_second)
+             + kernel_launch_overhead_seconds
 ```
 
-A run is reproducible from the file that produced it plus its seed and the PureEdgeSim version;
-`config.txt` echoes the effective configuration next to the numbers so an artifact carries the
-inputs that made it.
+Prefill flops scale with the prompt tokens that are not already cached; decode flops are small but
+each step re-reads the weights and the whole KV cache, which is why decode is memory-bound and why
+batching helps it. The estimate records which term binds (`COMPUTE`, `MEMORY` or `OVERHEAD`) so a
+slow step is attributed rather than guessed at. A step above the calibrated support envelope
+(more than `cost.supportedMaxBatchSize` sequences or `cost.supportedMaxStepTokens` tokens) is still
+priced, but a warning says the answer is an extrapolation.
 
-## Provenance and limits
+The model is analytical and uncalibrated: `device.achievedTFLOPS.*` is what you declare, not what
+any card does.
 
-The cost model in both examples is `roofline-analytical`: **analytical and uncalibrated**. No timing
-from a real model, device or serving engine was used. What that means in practice:
+### Memory and the KV cache
 
-- the device reports an *achieved* throughput and bandwidth, never a marketing peak, but those
-  figures are invented so that the roofline terms are comparable in size, not to describe any card;
-- weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per
-  layer would be slower;
-- the KV cache is charged as a full read per step, which is the pessimistic end of what a real paged
-  layout does;
-- every artifact row carries `cost_provenance=synthetic`, and the console prints the weakest
-  provenance among the inputs, so no output can accidentally look measured.
+```text
+device memory
+  minus unusable fraction          device.unusableMemoryFraction
+  minus weights                    parameters x bytes per parameter
+  minus runtime overhead           replica.runtimeOverheadGiB
+  minus activation reservation     replica.reservedActivationSlots x model.activationBytesPerSequence
+  = KV pool
+      bytes per token             2 x layers x kvHeads x headDimension x kvBytesPerScalar
+      tokens per block            replica.tokensPerBlock
+      blocks                      floor(pool / (bytes per token x tokens per block))
+```
 
-The simulator is honest about which numbers are estimates: it will tell you a duration is a roofline
-bound, not a measurement. Using it to compare two configurations of the *same* synthetic device is
-sound; using it to predict a real GPU is not, until the cost model is calibrated against one.
+A sequence reserves whole blocks, so a 1-token growth can cost a full block. When no block is
+free, a victim is chosen according to `replica.victimOrder`, suspended, and returned to the queue
+if preemption is enabled; otherwise the batch waits for completions. Admission can additionally
+refuse a request whose predicted context does not fit, which is how the loaded scenario reaches
+100 percent cache occupancy without the queue collapsing.
 
-## Testing
+### Batching, chunked prefill and preemption
 
-The suite runs on JUnit and the real engine (no stubs, no simulated success):
+- **Continuous batching.** After every decode step a finished sequence leaves and a queued one can
+  enter, so the batch is refilled without an idle barrier.
+- **Chunked prefill.** With `replica.maxPrefillChunkTokens` set, a long prompt is read in slices,
+  and the scheduler may decode other sequences between slices. Setting it to zero reads the whole
+  prompt in one step.
+- **Preemption with recompute.** A preempted sequence loses its cache, returns to the queue, and
+  is prefilled again when it is rescheduled. The metrics keep every queue episode.
+- **Deadline abort.** With `replica.abortOnDeadlineMiss=true`, a request past its end-to-end
+  deadline is terminated rather than allowed to finish, which trades success ratio for tail
+  latency.
 
-- **unit**: request lifecycle and latency math, the roofline cost model against hand-computed
-  anchors, paged-cache rounding and refusals, the energy integral, percentile and SLO helpers, the
-  strict settings reader, and every CLI exit-code branch including a real artifact-writing run;
-- **invariant**: every arrived request reaches a terminal state exactly once, no capacity is
-  exceeded, energy and utilisation stay physically bounded, and the per-request rows sum to the
-  aggregates;
-- **integration**: the same seed reproduces the same run, a different per-repetition salt produces
-  a different one, and utilisation rises monotonically with offered load;
-- **regression**: the two examples are pinned to freshly measured goldens so a silent behaviour
-  change fails the build.
+### Energy
 
-Run it with `mvn -o test`.
+The device is modelled with two constant power levels. Active seconds are charged at
+`device.activePowerWatts`, idle seconds at `device.idlePowerWatts`, and the sum is integrated over
+simulated time. Per-request energy is the share of the active interval during which the request
+occupied the device, so the per-request rows sum to the device total by construction.
+
+### Determinism
+
+Each repetition binds fresh samplers to a seed derived from `experiment.seed` and the repetition
+index. The workload plan copies its distributions per repetition, so repetitions differ while the
+same seed reproduces the same run. Ties are broken deterministically (lowest replica id for
+routing, arrival order for scheduling), and simultaneous events are ordered by the engine, so a
+rerun of the same scenario file, seed and repetition count produces the same summary values.
 
 ## Configuration reference
 
-Every key is read from a properties file; the committed `scenarios/*.properties` files are the
-worked examples, and `config.txt` written by a run lists the effective value of each key. The main
-groups are `experiment.*`, `model.*`, `device.*`, `replica(s).*`, `workload.*` (including
-`workload.inputDistribution.*` and `workload.outputDistribution.*`), `policy.*`, and `cost.model`.
+A scenario is a UTF-8 properties file. Every key is read once, and a key that nothing reads is
+reported as a warning after the scenario loads, so a misspelled setting does not silently change
+what the run means.
 
-## License
+Units are part of the key names. Memory is configured in GiB (binary), following how a runtime
+reports device capacity. Bandwidth and throughput are decimal (GB/s, TFLOPS), following how a
+datasheet writes them.
+
+Values may be overridden on the command line with `-D key=value`, which is how the sweep script
+changes one knob at a time.
+
+### `experiment.*`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `experiment.name` | `run` | Experiment name, also the run directory under the output directory |
+| `experiment.durationSeconds` | required | Simulated seconds per repetition, positive and finite |
+| `experiment.seed` | `1` | Seed of the first repetition; each repetition derives its own |
+| `experiment.repetitions` | `1` | Repetitions per run, at least one |
+| `experiment.outputDir` | `output` | Artifact root, resolved against the working directory; `-o` overrides it |
+| `metrics.samplingIntervalSeconds` | `1` | Seconds between resource samples; `0` disables the time series |
+
+Relative trace paths are resolved against the scenario file, while the output directory is
+resolved against the working directory: an input belongs to the scenario, an output belongs to the
+invocation.
+
+### `model.*`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `model.id` | required | Model identifier, matched against `workload.modelId` |
+| `model.name` | `model.id` | Human-readable name |
+| `model.version` | empty | Free-form version label |
+| `model.architecture` | `dense-transformer` | Free-form architecture label |
+| `model.parameterCount` | required | Parameters, with optional `K`, `M`, `B` or `T` suffix, for example `7B` |
+| `model.layers` | required | Transformer layers |
+| `model.hiddenDimension` | required | Hidden size |
+| `model.attentionHeads` | required | Attention heads |
+| `model.kvHeads` | `attentionHeads` | Key/value heads, smaller under grouped-query attention |
+| `model.headDimension` | required | Head size, in scalars |
+| `model.feedForwardDimension` | derived | Feed-forward size, informational |
+| `model.vocabularySize` | derived | Vocabulary size, informational |
+| `model.maxContextTokens` | required | Context limit, used by validation and warnings |
+| `model.precision` | `fp16` | Weight precision: `fp32`, `tf32`, `fp16`, `bf16`, `fp8`, `int8`, `int4` |
+| `model.bytesPerParameter` | from precision | Override when the precision is not in the table |
+| `model.kvDataType` | `model.precision` | Scalar type of the KV cache |
+| `model.kvBytesPerScalar` | from `kvDataType` | Scalar width of the KV cache |
+| `model.quantization` | `none` | Label written to the artifacts |
+| `model.activationBytesPerSequence` | `0` | Activation footprint reserved per running sequence |
+| `model.activeParameterFraction` | `1` | Fraction of parameters touched per token, for sparse models |
+| `model.provenance` | `synthetic` | `synthetic`, `literature` or `measured` |
+
+### `device.*`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `device.id` | required | Device identifier |
+| `device.type` | `accelerator` | Free-form device type |
+| `device.memoryGiB` | required | Capacity in binary GiB |
+| `device.unusableMemoryFraction` | `0.05` | Fraction reserved by the driver, in `[0, 1)` |
+| `device.memoryBandwidthGBs` | required | Achieved bandwidth, decimal GB/s |
+| `device.achievedTFLOPS.<precision>` | required at least one | Achieved throughput per precision, for example `device.achievedTFLOPS.fp16=312` |
+| `device.peakTFLOPS.<precision>` | none | Published peak, informational only |
+| `device.idlePowerWatts` | `0` | Power when no sequence runs |
+| `device.activePowerWatts` | `0` | Power while at least one sequence runs |
+| `device.kernelLaunchOverheadMs` | `0` | Fixed per-step launch cost |
+| `device.hostToDeviceBandwidthGBs` | `0` | Transfer bandwidth for models that stream weights |
+| `device.hostTransferLatencyMs` | `0` | Fixed transfer latency |
+| `device.provenance` | `synthetic` | `synthetic`, `literature` or `measured` |
+| `device.note` | empty | Free-form note echoed into the artifacts |
+
+At least one `device.achievedTFLOPS.*` entry is mandatory, and it must cover the model's precision:
+the execution model divides by an achieved value and refuses to divide by a peak one.
+
+### `replicas.*` and `replica.*`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `replicas.count` | `1` | Identical replicas, each on its own device instance |
+| `replica.maxBatchSize` | `64` | Largest number of sequences in one decode iteration |
+| `replica.maxPrefillChunkTokens` | `2048` | Tokens one prefill step may read; `0` reads the whole prompt |
+| `replica.allowPreemption` | `true` | Whether a full cache may suspend a running sequence |
+| `replica.victimOrder` | `newest-first` | `newest-first`, `lowest-priority` or `longest-context` |
+| `replica.abortOnDeadlineMiss` | `false` | Terminate instead of running past the end-to-end deadline |
+| `replica.tokensPerBlock` | `16` | Tokens per cache block, the allocation granularity |
+| `replica.runtimeOverheadGiB` | `0` | Bytes the runtime keeps beyond the unusable fraction |
+| `replica.reservedActivationSlots` | `0` | Sequences whose activations are reserved out of the KV budget |
+
+Two replicas never share a device instance: each would count the whole memory as its own. Use
+`replicas.count` for identical devices, not to model two processes on one card.
+
+### `workload.*`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `workload.pattern` | `poisson` | `fixed`, `poisson`, `bursty`, `time-varying` or `trace` |
+| `workload.intervalSeconds` | `1` | Gap between arrivals for `fixed` and `bursty` |
+| `workload.ratePerMinute` | `6` | Mean arrivals per minute, or the default rate of a time profile |
+| `workload.burstSize` | `4` | Requests released together under `bursty` |
+| `workload.rateProfileMinutes` | none | Ascending minute boundaries of a time profile, comma separated |
+| `workload.rateProfilePerMinute` | none | Rates of the profile; `N` rates need `N - 1` boundaries |
+| `workload.inputDistribution.name` | required unless trace | Prompt length distribution |
+| `workload.inputDistribution.<attribute>` | none | Attributes of that distribution, including `min` and `max` |
+| `workload.outputDistribution.name` | none | Generated length distribution |
+| `workload.outputDistribution.<attribute>` | none | Attributes of that distribution |
+| `workload.outputToInputRatio` | `0` | Alternative to an output distribution: output = ratio x prompt |
+| `workload.outputJitterTokens` | `0` | Uniform jitter added to each output length |
+| `workload.maxOutputTokens` | `4096` | Hard cap on generated tokens |
+| `workload.prediction` | `oracle` | `oracle`, `biased-factor`, `constant` or `trace-observed` |
+| `workload.predictionFactor` | `1` | Multiplier applied to the drawn length under `biased-factor` |
+| `workload.predictionConstant` | `128` | Constant prediction under `constant` |
+| `workload.maxRequests` | unlimited | Cap on arrivals |
+| `workload.stopArrivalsAfterSeconds` | none | Stop arrivals at this instant, letting the run drain |
+| `workload.priority` | `0` | Priority assigned to generated requests, higher wins |
+| `workload.serviceClass` | `default` | Service class used to select the SLO |
+| `workload.ttftTargetSeconds` | `0` | TTFT target, measured from arrival |
+| `workload.tpotTargetSeconds` | `0` | Per-token target |
+| `workload.endToEndTargetSeconds` | `0` | End-to-end target, measured from arrival |
+| `workload.cancellationDelaySeconds` | `0` | Client abandonment delay after arrival |
+| `workload.modelId` | `model.id` | Model the workload targets |
+| `workload.traceFile` | required for trace | CSV trace, resolved against the scenario file |
+| `workload.traceTimeScale` | `1` | Multiplier applied to every arrival instant |
+| `workload.traceMaxRows` | unlimited | Rows read from the trace |
+| `workload.traceDescription` | derived | Written by the loader, not read from the file |
+
+A target or a cancellation delay of `0` means "not stated": the request is then not counted in
+that objective, instead of counting as met or missed.
+
+Length distributions are PureEdgeSim distributions, so the names and attributes are shared with the
+engine:
+
+| Distribution | Attributes |
+|---|---|
+| `constant` | `value` |
+| `uniform` | `min`, `max` |
+| `triangular` | `min`, `mode`, `max` |
+| `normal` | `mean`, `std` |
+| `lognormal` | `mean`, `std` |
+| `exponential` | `mean` |
+| `gamma` | `shape`, `scale` |
+| `erlang` | `shape`, `scale` |
+| `weibull` | `shape`, `scale` |
+| `pareto` | `scale`, `shape` |
+| `beta` | `alpha`, `beta` |
+| `poisson` | `mean` |
+| `bernoulli` | `probability` |
+| `geometric` | `probability` |
+| `binomial` | `trials`, `probability` |
+| `categorical` | `values`, optional `weights` |
+
+Any distribution can also carry `min` and `max` to bound it from below and above.
+
+#### Prediction modes
+
+The controller in a real engine does not know how many tokens a request will generate. The
+`workload.prediction` key decides what the admission and scheduling policies are allowed to see:
+
+| Mode | What the controller sees | Meaning |
+|---|---|---|
+| `oracle` | The drawn length | An upper bound on any deployable controller |
+| `biased-factor` | Drawn length x `predictionFactor` | A systematic over- or under-estimate |
+| `constant` | `predictionConstant` tokens | A fixed guess |
+| `trace-observed` | The length recorded in the trace | The oracle available to a replay |
+
+The record and the artifact keep both numbers, so a result can say whether a gain comes from
+better scheduling or from a better length predictor.
+
+#### Trace replay
+
+A trace is a CSV file read by header name, not by column position, so a file exported by another
+tool can be replayed without rearranging the columns.
+
+Required columns:
+
+| Column | Meaning |
+|---|---|
+| `arrival_time_s` | Arrival instant in seconds, non-decreasing down the file |
+| `model_id` | Model the request targets |
+| `input_tokens` | Prompt length |
+| `output_tokens` | Observed generated length |
+
+Optional columns, each defaulting to an unstressed single-tenant request:
+
+| Column | Meaning |
+|---|---|
+| `priority` | Scheduling priority, higher wins |
+| `service_class` | Service class used for SLO accounting |
+| `session_id` | Session identifier, kept in the record |
+| `ttft_target_s` | TTFT target from arrival |
+| `e2e_target_s` | End-to-end target from arrival |
+| `tpot_target_s` | Per-token target |
+| `cancellation_delay_s` | Client abandonment delay from arrival |
+
+```properties
+workload.pattern=trace
+workload.traceFile=../configs/traces/my-trace.csv
+workload.traceTimeScale=0.25
+workload.prediction=trace-observed
+```
+
+`workload.traceTimeScale` multiplies the arrival instants, which is how a trace recorded at one
+intensity is replayed at another. The source file and the transformations applied are echoed into
+`config.txt` as a `# Trace:` line.
+
+### `policy.*`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `policy.admission` | `unlimited` | One policy, or a comma-separated chain applied in order |
+| `policy.queueLimit.maxWaitingRequests` | required when used | Cap on queued requests per replica |
+| `policy.cacheCapacity.headroomTokens` | `0` | Tokens kept free beyond the predicted context |
+| `policy.predictedDeadline.tolerance` | `1` | Fraction by which the predicted wait may exceed the slack |
+| `policy.routing` | `least-queued` | `round-robin`, `least-queued` or `least-predicted-work` |
+| `policy.scheduling` | `fcfs` | `fcfs`, `priority`, `shortest-expected-first` or `shortest-oracle-first` |
+
+### `cost.*`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cost.model` | `roofline-analytical` | The only implemented execution cost model |
+| `cost.supportedMaxBatchSize` | largest replica batch | Batch size above which a step is flagged as extrapolated |
+| `cost.supportedMaxStepTokens` | `16384` | Step tokens above which a step is flagged as extrapolated |
+
+## Policies
+
+### Admission
+
+Admission decides whether an arriving request enters the service at all. A chain is applied in
+order and the first refusal wins.
+
+| Policy | Rule | Refusal reason |
+|---|---|---|
+| `unlimited` | Always admits | none |
+| `queue-limit` | Refuses when every replica already holds `maxWaitingRequests` queued requests | `ADMISSION_QUEUE_FULL` |
+| `cache-capacity` | Refuses unless some replica can hold the predicted final context plus the headroom | `ADMISSION_NO_CACHE_CAPACITY` |
+| `predicted-deadline` | Refuses when the least pending work exceeds the TTFT slack times `1 + tolerance` | `ADMISSION_DEADLINE_INFEASIBLE` |
+
+`predicted-deadline` is deliberately conservative: the pending work is a lower bound on the wait,
+because running sequences keep decoding while the request waits.
+
+### Routing
+
+Routing chooses a replica when more than one can serve the request. All three break ties by the
+lowest replica index, so the choice is deterministic.
+
+| Policy | Rule |
+|---|---|
+| `round-robin` | Rotates through the replicas in order |
+| `least-queued` | Chooses the replica with the fewest waiting requests |
+| `least-predicted-work` | Chooses the replica whose queued work, in expected step-seconds, is smallest |
+
+### Scheduling
+
+Scheduling orders the waiting queue of one replica.
+
+| Policy | Order | Sees |
+|---|---|---|
+| `fcfs` | Arrival order | Nothing |
+| `priority` | Higher priority first, then arrival | The declared priority |
+| `shortest-expected-first` | Shortest expected work first | The predicted output length |
+| `shortest-oracle-first` | Shortest total work first | The drawn output length |
+
+The last one is an oracle baseline: it shows what a perfect length predictor would buy, and it is
+not deployable.
+
+## Command line
+
+```text
+usage: genaism [options] <scenario.properties>
+
+  -c, --scenario FILE     the scenario to run
+  -o, --output DIR        override experiment.outputDir
+  -s, --seed N            override experiment.seed
+  -r, --repetitions N     override experiment.repetitions
+  -D key=value            set or override any scenario property
+  -q, --quiet             write the artifacts without the console report
+  -h, --help              show this message
+  --version               show the version
+```
+
+Examples:
+
+```bash
+# three repetitions, artifacts under results/loaded
+java -jar target/genai-inference-sim-1.0.0.jar \
+    -r 3 -o results scenarios/loaded-7b-memory-pressure.properties
+
+# change one knob without editing the file
+java -jar target/genai-inference-sim-1.0.0.jar \
+    -D replica.maxBatchSize=8 scenarios/loaded-7b-memory-pressure.properties
+
+# quiet run for scripts
+java -jar target/genai-inference-sim-1.0.0.jar -q scenarios/single-gpu-poisson.properties
+```
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| `0` | The experiment finished and its artifacts were written |
+| `2` | Usage error: bad flag, missing file, unreadable path |
+| `3` | The scenario does not load: missing key, bad value, unreadable trace |
+| `4` | The run failed or an artifact could not be written |
+
+A warning about an unused key is printed but does not change the exit code; the run still
+completes. The warning exists because a silently ignored key is how a result ends up describing
+something other than what its author wrote.
+
+## Artifacts
+
+Every run writes under `<experiment.outputDir>/<experiment.name>/`:
+
+```text
+summary.csv           one row per repetition: aggregates and per-metric summaries
+slo.csv               attainment per service class and objective, one row per combination
+config.txt            the resolved scenario, the provenance of the weakest input, and caveats
+rep01/requests.csv    one row per request, 50 columns
+rep01/requests.jsonl  the same rows as JSON lines
+rep01/samples.csv     periodic resource samples, one row per replica and instant
+rep02/...
+```
+
+### `summary.csv`
+
+One row per repetition, 71 columns: the identifying columns (`experiment`, `repetition`, `seed`,
+`cost_model`), the aggregates (`duration_s`, `requests_offered`, `requests_completed`,
+`success_ratio`, `requests_with_objective`, `requests_within_objective`, `goodput`,
+`tokens_generated`, `tokens_per_second`, `requests_per_second`), six summary statistics (mean,
+p50, p90, p95, p99, max) for each of the seven metrics (`ttft_s`, `e2e_s`, `tpot_s`, `mean_itl_s`,
+`queueing_s`, `prefill_s`, `decode_s`), the energy columns (`energy_j`, `energy_wh`), the device
+aggregates (`device_utilisation`, `replicas`, `mean_batch`, `peak_batch`, `decode_iterations`,
+`prefill_steps`, `preemptions`, `cache_refusals`, `stalled_steps`, `peak_cache_occupancy`,
+`sampler_bindings`), the calibration label (`cost_calibration`) and the outcome histogram
+(`outcomes`, as `reason:count` pairs).
+
+### `requests.csv`
+
+One row per terminal request, 50 columns:
+
+| Group | Columns |
+|---|---|
+| Provenance | `experiment`, `seed`, `repetition`, `cost_model`, `cost_provenance`, `cost_calibrated`, `model_provenance`, `device_provenance` |
+| Identity | `request_id`, `model_id`, `replica_id`, `tenant_id`, `service_class`, `priority`, `session_id` |
+| Timeline | `arrival_time_s`, `admitted_time_s`, `queue_entry_time_s`, `prefill_start_time_s`, `first_token_time_s`, `last_token_time_s`, `terminal_time_s` |
+| Outcome | `final_state`, `outcome_reason` |
+| Work | `input_tokens`, `output_tokens_requested`, `output_tokens_generated`, `predicted_output_tokens`, `cached_tokens`, `allocated_blocks` |
+| Latency | `ttft_s`, `tpot_s`, `mean_itl_s`, `max_itl_s`, `e2e_s`, `queueing_s`, `prefill_s`, `decode_s` |
+| Energy | `energy_j`, `energy_wh` |
+| Preemption | `preemptions` |
+| Targets | `ttft_target_s`, `e2e_target_s`, `tpot_target_s`, `cancellation_time_s` |
+| SLO flags | `ttft_met`, `e2e_met`, `tpot_met`, `all_slo_met` |
+| Accounting | `decode_iterations_expected` |
+
+Durations are measured from arrival, except `prefill_s` and `decode_s`, which measure the work
+itself. A request that never reached a phase carries an empty cell or `NaN` there, rather than a
+zero that would read as instantaneous.
+
+### `samples.csv`
+
+One row per replica per sampling instant:
+
+```text
+time_s,replica_id,running_sequences,waiting_requests,used_blocks,total_blocks,reserved_tokens,cache_occupancy,energy_j,executing
+```
+
+`executing` is `true` when at least one sequence decoded during the interval. This series is what
+a time plot of batch size, queue length and cache occupancy should be drawn from.
+
+### `slo.csv`
+
+```text
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+```
+
+`objective` is one of `ttft`, `e2e`, `tpot` or `all`. `applicable` counts the requests of that
+class that stated the objective, so a class without targets is reported with
+`applicable=0` rather than a fabricated 100 percent.
+
+### `config.txt`
+
+The resolved scenario (model, device, deployment, cost model, workload, policies) followed by the
+provenance of the weakest input, the calibration state of the cost model, any warning the run
+produced, the trace description when the workload replays a file, and the pooled summary of each
+metric. An artifact therefore carries the inputs that made it, not only the numbers it produced.
+
+## Metrics defined
+
+- **TTFT** (`ttft_s`): arrival to first emitted token, across all attempts.
+- **TPOT** (`tpot_s`): `(last token - first token) / (tokens - 1)` over the decode phase.
+- **Mean ITL** (`mean_itl_s`): mean of the per-iteration gaps between emitted tokens.
+- **End-to-end** (`e2e_s`): arrival to last token, defined only for completed requests.
+- **Queueing** (`queueing_s`): life-total time in a waiting queue, summed over every episode, so it
+  can exceed TTFT after a preemption.
+- **Prefill** and **decode** (`prefill_s`, `decode_s`): the work itself, summed over all attempts.
+- **Success ratio**: completed requests over offered requests.
+- **Goodput**: the fraction of offered requests that completed within every stated target.
+- **Utilisation**: the fraction of simulated time in which at least one sequence was decoding.
+
+Percentiles use linear interpolation between ranks (the NumPy default), so the console, the CSV
+and a Pandas reading of the same rows agree.
+
+Two summaries are reported side by side. The **pooled** summary collects every request row of
+every repetition and answers "what did this deployment do to a request". The **across-repetition**
+summary collects the per-repetition means and answers "how much does the answer move when the seed
+changes"; it prints a standard error, and with one repetition it prints zero spread because one
+observation contains no information about spread.
+
+## Provenance and limits
+
+Every input carries a provenance label, and the scenario reports the weakest of them:
+
+```mermaid
+flowchart LR
+  S[synthetic] --> L[literature] --> M[measured]
+```
+
+| Label | Meaning |
+|---|---|
+| `synthetic` | Invented for the scenario; comparable in magnitude, not descriptive of a real part |
+| `literature` | Taken from a published specification or paper |
+| `measured` | Produced by a measurement on this machine or a named device |
+
+The cost model is `roofline-analytical` and uncalibrated. Two consequences follow, and they are
+stated in every artifact:
+
+- The device reports an *achieved* throughput and bandwidth. Those figures are declared in the
+  scenario, not measured here.
+- Weights are charged once per step, which assumes a fused kernel; the KV cache is charged as a
+  full read per step, which is the pessimistic end of a paged layout. Both assumptions are
+  listed in the cost model's own notes and echoed into `config.txt`.
+
+Using the simulator to compare two configurations of the *same* synthetic device is sound: both
+sides carry the same assumptions. Using it to predict a real GPU is not sound until the model is
+calibrated against one. The provenance lattice exists so that a calibrated run cannot be confused
+with an uncalibrated one.
+
+No provider trace (OpenAI, Anthropic, Gemini or otherwise) is used anywhere in this repository.
+The committed scenarios are parametric. The replay path described under
+[Trace replay](#trace-replay) is the intended way to change that, and a public trace such as the
+Azure LLM inference trace, BurstGPT or ShareGPT conversations would map onto its columns
+directly. Until such a scenario is committed and its numbers measured, no result here should be
+read as reproducing production traffic.
+
+## Reproducing the published numbers
+
+The repository ships the driver that produced the paper's sweep:
+
+```bash
+mvn -q package
+bash scripts/run_sweeps.sh                 # 19 configurations, three repetitions each
+python scripts/plot_sweeps.py              # figures from target/sweep into target/figures
+```
+
+`run_sweeps.sh` writes under `target/sweep` by default (pass another directory as its first
+argument), and ends with `SWEEP_DONE fail=0` when every configuration completed. Each
+configuration is a `-D` override of a committed scenario, so the sweep is a list of explicit
+settings rather than a second scenario format.
+
+Determinism: the same scenario file, seed and repetition count regenerate byte-identical summary
+files. Two runs on the same machine produce the same `summary.csv`; the per-request files contain
+the same values with the same column order.
+
+The scenarios in this README were produced with:
+
+```bash
+java -jar target/genai-inference-sim-1.0.0.jar -r 3 scenarios/single-gpu-poisson.properties
+java -jar target/genai-inference-sim-1.0.0.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
+```
+
+on a Windows host with a JDK 23 runtime, seed 1, with the committed build. The paper reports the
+arithmetic mean over the repetitions; the console tables above report the individual repetitions.
+
+## Testing
+
+```bash
+mvn test
+```
+
+The suite runs on JUnit 5 against the real engine, with no stubs and no simulated success:
+
+| Layer | Tests | What it establishes |
+|---|---|---|
+| Unit | 78 | Request lifecycle and latency math, the roofline model against hand-computed anchors, paged-cache rounding and refusals, the energy integral, percentile and SLO helpers, the strict settings reader |
+| Integration | 5 | The same seed reproduces a run, a different repetition salt changes it, utilisation rises with offered load |
+| Invariant | 2 | Nineteen assertions re-derive the accounting from the exposed counters of a finished run |
+| Regression | 3 | The two scenarios are pinned to freshly measured goldens |
+| Command line | 16 | Exit codes, `-D` overrides, artifact layout, the unused-key warning, JSON quoting |
+
+Total: 104 tests. A full run takes about ten seconds on the development machine.
+
+The invariant layer is the important one for published results. The result object verifies itself
+when it is built: every arrived request is terminal exactly once, completed requests do not
+outnumber terminal ones, good requests do not outnumber requests with an objective, device energy
+equals the sum over replicas and is at least the idle floor, utilisation lies in `[0, 1]`, pooled
+statistics equal the sums over request rows, and no reservation exceeds the pool. The invariant
+tests recompute the same facts independently, so a refactor that removes an internal guard without
+changing the numbers still fails the build.
+
+## Project layout
+
+```text
+GenAIInferenceSim/
+├── pom.xml
+├── README.md
+├── LICENSE                       GPL-3.0
+├── scenarios/                    the two committed, runnable scenarios
+├── scripts/
+│   ├── run_sweeps.sh             the 19-configuration sweep driver
+│   └── plot_sweeps.py            figures from the sweep output
+├── docs/                         detailed reference pages (see docs/README.md)
+├── configs/                      reserved for reusable fragments (traces, hardware, models)
+├── examples/                     reserved for worked examples
+├── results/                      reserved for published artifact sets
+└── src/
+    ├── main/java/com/mechalikh/genaism/
+    │   ├── cli/                  argument parsing and exit codes
+    │   ├── config/               Settings, Scenario and TraceLoader
+    │   ├── domain/               request, model, device, provenance, states
+    │   ├── engine/               service, replica loop, workload plan and source
+    │   ├── policy/               admission, routing and scheduling strategies
+    │   ├── memory/               memory split and paged KV pool
+    │   ├── cost/                 roofline model and its estimate
+    │   ├── power/                two-level power integration
+    │   ├── metrics/              per-request recording, samples, percentiles, SLO
+    │   └── experiment/           runner, run result and report
+    └── test/java/com/mechalikh/genaism/
+        ├── unit/ integration/ invariant/ regression/ cli/ support/
+```
+
+`configs/`, `examples/` and `results/` are placeholders kept in the tree for the next stage; they
+are not used by the build or by the tests.
+
+## Extending the simulator
+
+**A new policy.** Implement `AdmissionPolicy`, `RoutingPolicy` or `SchedulingPolicy`, then add one
+`case` to the matching factory method in `Scenario` and one line to its error message. The policy
+receives the request and the load snapshot, and returns a decision; it must not mutate engine
+state.
+
+**A new workload pattern.** Add a constant to `WorkloadPlan.Pattern`, extend `validate()` with its
+required settings, extend the arrival drawing in `WorkloadSource`, and extend `describe()` so the
+artifact names it.
+
+**A new cost model.** Implement `ExecutionCostModel`. `Scenario.costModel` currently accepts only
+`roofline-analytical` and says so in its error message; relax that switch when a second model
+exists. A calibrated model should return `isCalibrated() == true` and name its
+`calibrationSource()`, which flips the provenance lattice for the whole run.
+
+**A new artifact column.** Append it to the header in `RequestRecorder.HEADER` and to the row
+builder in the same class, and add its aggregate to `RunResult` if it belongs in `summary.csv`. The
+invariant tests compare pooled statistics against the per-request rows, so a column that does not
+sum correctly fails the build.
+
+## Roadmap
+
+Ordered by what would most improve the evidence, not by effort:
+
+1. Run one public trace (Azure LLM inference trace, BurstGPT or ShareGPT) through the existing
+   replay path, commit the converter and the scenario, and report the numbers next to the
+   synthetic sweeps.
+2. Calibrate the roofline coefficients against one serving engine on one device, and label the
+   result `measured`.
+3. Multi-GPU and multi-node topologies, with tensor and pipeline parallelism.
+4. Disaggregated prefill and decode on separate pools.
+5. Prefix caching across requests, so a shared prompt prefix is not recomputed.
+6. An HTTP or gRPC front end, so the simulator can sit behind a load generator.
+
+Items 1 and 2 change what the numbers mean; the rest extend what can be simulated. Until 1 and 2
+are done, every result in this repository is a statement about the simulator, not about a
+deployment.
+
+## License and citation
 
 GenAIInferenceSim is released under the GNU General Public License v3.0, the same license as the
 PureEdgeSim engine it builds on. Every source file carries the GPL header.
+
+If you use it in academic work, cite the repository and the engine:
+
+```bibtex
+@software{mechalikh_genaiinferencesim,
+  author  = {Mechalikh, Charafeddine},
+  title   = {{GenAIInferenceSim}: a discrete-event simulator for generative AI inference serving},
+  year    = {2026},
+  version = {1.0.0},
+  url     = {https://github.com/CharafeddineMechalikh/GenAIInferenceSim},
+  license = {GPL-3.0}
+}
+```

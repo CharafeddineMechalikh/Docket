@@ -189,195 +189,485 @@ public class ModelProfile {
 			throw new IllegalArgumentException("Model \"" + id + "\": " + errorMessage);
 	}
 
+	/**
+	 * Returns the identifier the workload uses to select this model among the configured ones.
+	 *
+	 * @return the model id, empty when the profile was not loaded from a configuration
+	 */
 	public String getId() {
 		return id;
 	}
 
+	/**
+	 * Sets the identifier a workload names when it asks for this model.
+	 *
+	 * @param id the model id, non-empty for {@link #validate()} to pass
+	 * @return this profile
+	 */
 	public ModelProfile setId(String id) {
 		this.id = id;
 		return this;
 	}
 
+	/**
+	 * Returns the human readable name, which labels the model in reports and logs and never
+	 * enters a timing or memory computation.
+	 *
+	 * @return the display name, empty when unset
+	 */
 	public String getName() {
 		return name;
 	}
 
+	/**
+	 * Sets the display name shown in the artifacts.
+	 *
+	 * @param name the human readable model name
+	 * @return this profile
+	 */
 	public ModelProfile setName(String name) {
 		this.name = name;
 		return this;
 	}
 
+	/**
+	 * Returns the version of the weights as free text, which the simulator carries into the
+	 * artifacts and never parses.
+	 *
+	 * @return the version label, empty when unset
+	 */
 	public String getVersion() {
 		return version;
 	}
 
+	/**
+	 * Sets the version label of the weights.
+	 *
+	 * @param version the free-text version
+	 * @return this profile
+	 */
 	public ModelProfile setVersion(String version) {
 		this.version = version;
 		return this;
 	}
 
+	/**
+	 * Returns the architecture family. The analytical execution model scores only
+	 * {@code dense-transformer}, and {@link #validate()} rejects any other value.
+	 *
+	 * @return the family name, {@code dense-transformer} by default
+	 */
 	public String getArchitecture() {
 		return architecture;
 	}
 
+	/**
+	 * Sets the architecture family, which decides whether the dense execution model is allowed
+	 * to score this profile at all.
+	 *
+	 * @param architecture the family name, currently only {@code dense-transformer} is scored
+	 * @return this profile
+	 */
 	public ModelProfile setArchitecture(String architecture) {
 		this.architecture = architecture;
 		return this;
 	}
 
+	/**
+	 * Returns the total parameter count, embeddings included. Multiplied by the width of a
+	 * weight scalar it gives the resident weight footprint of the model.
+	 *
+	 * @return parameters in the whole model, positive
+	 */
 	public long getParameterCount() {
 		return parameterCount;
 	}
 
+	/**
+	 * Sets the total parameter count, including the embedding matrices.
+	 *
+	 * @param parameterCount parameters in the whole model, positive
+	 * @return this profile
+	 */
 	public ModelProfile setParameterCount(long parameterCount) {
 		this.parameterCount = parameterCount;
 		return this;
 	}
 
+	/**
+	 * Returns the number of transformer blocks. Every layer holds one key and one value tensor
+	 * per cached token, so the layer count scales the cache linearly.
+	 *
+	 * @return the layer count, positive
+	 */
 	public int getLayers() {
 		return layers;
 	}
 
+	/**
+	 * Sets how many transformer blocks are stacked in the model.
+	 *
+	 * @param layers transformer blocks, positive
+	 * @return this profile
+	 */
 	public ModelProfile setLayers(int layers) {
 		this.layers = layers;
 		return this;
 	}
 
+	/**
+	 * Returns the residual stream width, in scalars, so the hidden width of a token vector. The
+	 * attention heads must fill it exactly: {@code attentionHeads * headDimension} equals it.
+	 *
+	 * @return hidden width in scalars, positive
+	 */
 	public int getHiddenDimension() {
 		return hiddenDimension;
 	}
 
+	/**
+	 * Sets the residual stream width that the attention heads and the feed-forward block
+	 * expand from.
+	 *
+	 * @param hiddenDimension width in scalars, positive
+	 * @return this profile
+	 */
 	public ModelProfile setHiddenDimension(int hiddenDimension) {
 		this.hiddenDimension = hiddenDimension;
 		return this;
 	}
 
+	/**
+	 * Returns the number of query heads in each attention block. The query projection produces
+	 * this many heads of {@link #getHeadDimension()} scalars, so the product must fill the hidden
+	 * width.
+	 *
+	 * @return the query head count, positive
+	 */
 	public int getAttentionHeads() {
 		return attentionHeads;
 	}
 
+	/**
+	 * Sets the query head count. The head width and the hidden width must stay consistent with
+	 * it: {@code attentionHeads * headDimension == hiddenDimension}.
+	 *
+	 * @param attentionHeads query heads per attention block, positive
+	 * @return this profile
+	 */
 	public ModelProfile setAttentionHeads(int attentionHeads) {
 		this.attentionHeads = attentionHeads;
 		return this;
 	}
 
+	/**
+	 * Returns the number of key/value heads, smaller than the query head count when the model
+	 * uses grouped-query attention. The cache estimate scales with this count, so sharing keys
+	 * and values across query heads shrinks the footprint.
+	 *
+	 * @return the key/value head count, {@code 0} or less while still unset
+	 */
 	public int getKvHeads() {
 		return kvHeads;
 	}
 
+	/**
+	 * Sets how many key and value heads the cache stores, the lever a grouped-query attention
+	 * model uses to shrink its footprint.
+	 * <p>
+	 * A value of {@code 0} or less leaves the field unset and asks {@link #applyDefaults()} to
+	 * copy the query head count, which is ordinary multi-head attention.
+	 *
+	 * @param kvHeads key/value heads, at most the query head count once defaults are applied
+	 * @return this profile
+	 */
 	public ModelProfile setKvHeads(int kvHeads) {
 		this.kvHeads = kvHeads;
 		return this;
 	}
 
+	/**
+	 * Returns the width of one attention head, in scalars. It multiplies with the key/value head
+	 * count to give the width of the cached key and value vectors.
+	 *
+	 * @return scalars per head, {@code 0} or less while still unset
+	 */
 	public int getHeadDimension() {
 		return headDimension;
 	}
 
+	/**
+	 * Sets the width of one attention head, which together with the head counts must reproduce
+	 * the hidden width.
+	 * <p>
+	 * A value of {@code 0} or less leaves the field unset and asks {@link #applyDefaults()} to
+	 * derive it as {@code hiddenDimension / attentionHeads}.
+	 *
+	 * @param headDimension scalars per head, positive once defaults are applied
+	 * @return this profile
+	 */
 	public ModelProfile setHeadDimension(int headDimension) {
 		this.headDimension = headDimension;
 		return this;
 	}
 
+	/**
+	 * Returns the inner width of the feed-forward block, which expands a token from the hidden
+	 * width and contracts it back. The roofline reads the parameter count directly, so this
+	 * value documents the block rather than resizing it, and {@link #validate()} does not
+	 * require it.
+	 *
+	 * @return inner width in scalars, {@code 0} when the profile leaves it out
+	 */
 	public int getFeedForwardDimension() {
 		return feedForwardDimension;
 	}
 
+	/**
+	 * Sets the inner width of the feed-forward block, for documentation and consistency checks.
+	 *
+	 * @param feedForwardDimension inner width in scalars, usually a small multiple of the hidden
+	 *                             width
+	 * @return this profile
+	 */
 	public ModelProfile setFeedForwardDimension(int feedForwardDimension) {
 		this.feedForwardDimension = feedForwardDimension;
 		return this;
 	}
 
+	/**
+	 * Returns the number of distinct tokens the model can emit, which bounds the output
+	 * projection. It is recorded for reference and not validated, because the cost model counts
+	 * the projection through the parameter total.
+	 *
+	 * @return vocabulary size in tokens, {@code 0} when unset
+	 */
 	public int getVocabularySize() {
 		return vocabularySize;
 	}
 
+	/**
+	 * Sets the vocabulary size, that is the number of rows of the input and output embedding
+	 * matrices.
+	 *
+	 * @param vocabularySize token types the tokenizer can produce, non-negative
+	 * @return this profile
+	 */
 	public ModelProfile setVocabularySize(int vocabularySize) {
 		this.vocabularySize = vocabularySize;
 		return this;
 	}
 
+	/**
+	 * Returns the largest prompt plus output length, in tokens, that the model accepts. A request
+	 * that would exceed it has to be rejected or truncated before it reaches the cache.
+	 *
+	 * @return the context limit in tokens, positive
+	 */
 	public int getMaxContextTokens() {
 		return maxContextTokens;
 	}
 
+	/**
+	 * Sets the context window that the admission and memory checks enforce.
+	 *
+	 * @param maxContextTokens prompt plus output limit in tokens, positive
+	 * @return this profile
+	 */
 	public ModelProfile setMaxContextTokens(int maxContextTokens) {
 		this.maxContextTokens = maxContextTokens;
 		return this;
 	}
 
+	/**
+	 * Returns the name of the weight precision, for instance {@code fp16}. The device profile
+	 * uses it to look up the achieved throughput, so a precision the device does not declare
+	 * stops the scenario with an error.
+	 *
+	 * @return the precision label, {@code fp16} by default
+	 */
 	public String getPrecision() {
 		return precision;
 	}
 
+	/**
+	 * Sets the precision label used to select the device throughput and to label the artifacts.
+	 * It does not by itself change {@link #getBytesPerParameter()}.
+	 *
+	 * @param precision a label such as {@code fp16} or {@code int8}
+	 * @return this profile
+	 */
 	public ModelProfile setPrecision(String precision) {
 		this.precision = precision;
 		return this;
 	}
 
+	/**
+	 * Returns the bytes occupied by one weight scalar, which converts the parameter count into
+	 * the resident weight footprint (see {@link #weightBytes()}).
+	 *
+	 * @return bytes per weight scalar, positive
+	 */
 	public double getBytesPerParameter() {
 		return bytesPerParameter;
 	}
 
+	/**
+	 * Sets the width of one weight scalar. The configuration loader derives it from
+	 * {@link #getPrecision()} unless the scenario overrides it.
+	 *
+	 * @param bytesPerParameter bytes per weight scalar, positive
+	 * @return this profile
+	 */
 	public ModelProfile setBytesPerParameter(double bytesPerParameter) {
 		this.bytesPerParameter = bytesPerParameter;
 		return this;
 	}
 
+	/**
+	 * Returns the storage type of the cached keys and values, for instance {@code fp16} or
+	 * {@code int8}. It labels a quantized cache; the size arithmetic uses
+	 * {@link #getKvBytesPerScalar()} instead.
+	 *
+	 * @return the cache data type label, {@code fp16} by default
+	 */
 	public String getKvDataType() {
 		return kvDataType;
 	}
 
+	/**
+	 * Sets the storage type of the cache, from which the loader derives the cached scalar width
+	 * unless the scenario overrides it.
+	 *
+	 * @param kvDataType a label such as {@code fp16} or {@code int8}
+	 * @return this profile
+	 */
 	public ModelProfile setKvDataType(String kvDataType) {
 		this.kvDataType = kvDataType;
 		return this;
 	}
 
+	/**
+	 * Returns the bytes occupied by one cached key or value scalar, which lets a quantized cache
+	 * be narrower than the weights. The cache estimate scales linearly with it.
+	 *
+	 * @return bytes per cached scalar, positive
+	 */
 	public double getKvBytesPerScalar() {
 		return kvBytesPerScalar;
 	}
 
+	/**
+	 * Sets the width of one cached scalar, independently of the weight width, so that a cache
+	 * stored at a lower precision can be modelled.
+	 *
+	 * @param kvBytesPerScalar bytes per cached scalar, positive
+	 * @return this profile
+	 */
 	public ModelProfile setKvBytesPerScalar(double kvBytesPerScalar) {
 		this.kvBytesPerScalar = kvBytesPerScalar;
 		return this;
 	}
 
+	/**
+	 * Returns the quantization scheme applied to the weights, {@code none} when they are stored
+	 * at the declared precision unchanged. The label is reported only; the effective widths are
+	 * the byte fields.
+	 *
+	 * @return the scheme label, {@code none} by default
+	 */
 	public String getQuantization() {
 		return quantization;
 	}
 
+	/**
+	 * Sets the quantization label recorded in the artifacts.
+	 *
+	 * @param quantization a scheme label such as {@code none} or {@code int8}
+	 * @return this profile
+	 */
 	public ModelProfile setQuantization(String quantization) {
 		this.quantization = quantization;
 		return this;
 	}
 
+	/**
+	 * Returns the bytes reserved per running sequence for activations and intermediate buffers,
+	 * charged on top of the key-value cache. Zero means the memory model counts weights and cache
+	 * only.
+	 * <p>
+	 * A prefill step is charged one such block and a decode step one per sequence in the batch.
+	 *
+	 * @return bytes per in-flight sequence, {@code 0} when activations are not modelled
+	 */
 	public double getActivationBytesPerSequence() {
 		return activationBytesPerSequence;
 	}
 
+	/**
+	 * Sets the activation reservation that the memory manager holds back for each sequence slot.
+	 *
+	 * @param activationBytesPerSequence bytes per running sequence, {@code 0} to ignore
+	 *                                  activations
+	 * @return this profile
+	 */
 	public ModelProfile setActivationBytesPerSequence(double activationBytesPerSequence) {
 		this.activationBytesPerSequence = activationBytesPerSequence;
 		return this;
 	}
 
+	/**
+	 * Returns the share of the parameters that take part in the computation of one token, a
+	 * dimensionless fraction in {@code (0, 1]}. A dense model keeps {@code 1.0}; a sparsely
+	 * activated model would declare the share it uses, and {@link #activeParameters()} scales
+	 * the arithmetic term by it.
+	 *
+	 * @return the active fraction, {@code 1.0} by default
+	 */
 	public double getActiveParameterFraction() {
 		return activeParameterFraction;
 	}
 
+	/**
+	 * Sets the share of the parameters a token activates, which scales the arithmetic term of
+	 * the roofline.
+	 *
+	 * @param activeParameterFraction dimensionless fraction in {@code (0, 1]}
+	 * @return this profile
+	 */
 	public ModelProfile setActiveParameterFraction(double activeParameterFraction) {
 		this.activeParameterFraction = activeParameterFraction;
 		return this;
 	}
 
+	/**
+	 * Returns where the numbers of this profile come from. The reporting layer keeps the weakest
+	 * provenance among the profiles a result used, so one synthetic dimension is enough to label
+	 * the whole run synthetic.
+	 *
+	 * @return the provenance tag, {@link Provenance#SYNTHETIC} by default
+	 */
 	public Provenance getProvenance() {
 		return provenance;
 	}
 
+	/**
+	 * Sets the provenance tag that travels with every result computed from this profile.
+	 *
+	 * @param provenance where the numbers come from
+	 * @return this profile
+	 */
 	public ModelProfile setProvenance(Provenance provenance) {
 		this.provenance = provenance;
 		return this;
 	}
 
+	/**
+	 * Renders a one line summary with the identifier, parameter count, layer count, hidden width
+	 * and precision, for logs and exception text.
+	 *
+	 * @return the summary line
+	 */
 	@Override
 	public String toString() {
 		return "ModelProfile[" + id + ", " + parameterCount + " params, " + layers + " layers, "

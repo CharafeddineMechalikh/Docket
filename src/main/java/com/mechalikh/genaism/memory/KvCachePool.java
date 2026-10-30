@@ -224,22 +224,66 @@ public class KvCachePool {
 		return usedBlocks * tokensPerBlock;
 	}
 
+	/**
+	 * Returns the number of blocks currently handed out.
+	 * <p>
+	 * A block belongs to a request from the moment a reservation covers it until the request is
+	 * released, so this is occupancy in blocks, whereas {@link #usedTokens()} reports the same
+	 * occupancy converted to tokens.
+	 *
+	 * @return used blocks, between zero and {@link #getTotalBlocks()}
+	 */
 	public int usedBlocks() {
 		return usedBlocks;
 	}
 
+	/**
+	 * Returns the largest number of blocks handed out at the same time since the pool was created.
+	 * <p>
+	 * This high-water mark is what the run summary reports as peak cache occupancy: it shows how
+	 * close the traffic came to exhausting the device, which the instantaneous count at the end
+	 * of a run cannot.
+	 *
+	 * @return peak used blocks, never below the current {@link #usedBlocks()}
+	 */
 	public int peakUsedBlocks() {
 		return peakUsedBlocks;
 	}
 
+	/**
+	 * Returns the number of blocks the pool was created with.
+	 * <p>
+	 * The constructor derives this count from the byte budget by flooring the division of the
+	 * budget by the size of one block, so it is the number of whole blocks the device can hold,
+	 * not the raw byte budget.
+	 *
+	 * @return total blocks, at least one
+	 */
 	public int getTotalBlocks() {
 		return totalBlocks;
 	}
 
+	/**
+	 * Returns the number of tokens one block holds.
+	 * <p>
+	 * This is the rounding granularity of the pool: a sequence reserves whole blocks, so its
+	 * reservation is rounded up to the next multiple of this figure.
+	 *
+	 * @return tokens per block, at least one
+	 */
 	public int getTokensPerBlock() {
 		return tokensPerBlock;
 	}
 
+	/**
+	 * Returns the bytes one cached token occupies on the device.
+	 * <p>
+	 * The value comes from the model profile and covers the keys and values of every layer, so
+	 * multiplying it by a token count gives the raw byte footprint before the pool rounds the
+	 * count up to whole blocks.
+	 *
+	 * @return bytes per token, positive
+	 */
 	public double getBytesPerToken() {
 		return bytesPerToken;
 	}
@@ -297,6 +341,11 @@ public class KvCachePool {
 					+ usedBlocks + ")");
 	}
 
+	/**
+	 * Returns a one-line description of the pool state.
+	 *
+	 * @return used blocks out of total, tokens per block, and peak occupancy
+	 */
 	@Override
 	public String toString() {
 		return "KvCachePool[" + usedBlocks + "/" + totalBlocks + " blocks, " + tokensPerBlock + " tokens each, peak "

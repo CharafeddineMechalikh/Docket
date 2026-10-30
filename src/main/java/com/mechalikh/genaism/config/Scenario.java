@@ -646,66 +646,156 @@ public class Scenario {
 		return out.toString();
 	}
 
+	/**
+	 * Returns the experiment name, which also names the run directory and the experiment column of
+	 * the artifacts.
+	 *
+	 * @return the experiment name
+	 */
 	public String getName() {
 		return name;
 	}
 
+	/**
+	 * Returns the simulated duration of the run, which caps the clock of the engine.
+	 *
+	 * @return the duration in simulated seconds
+	 */
 	public double getDurationSeconds() {
 		return durationSeconds;
 	}
 
+	/**
+	 * Returns the seed of the first repetition; later repetitions derive their own seed from it.
+	 *
+	 * @return the first seed
+	 */
 	public long getSeed() {
 		return seed;
 	}
 
+	/**
+	 * Returns how many times the workload is replayed with a fresh seed.
+	 *
+	 * @return the repetition count, at least one
+	 */
 	public int getRepetitions() {
 		return repetitions;
 	}
 
+	/**
+	 * Returns the directory the artifacts are written to, already resolved against the working
+	 * directory of the invocation rather than against the scenario file.
+	 *
+	 * @return the output directory
+	 */
 	public Path getOutputDir() {
 		return outputDir;
 	}
 
+	/**
+	 * Returns the seconds between two resource samples; zero disables the time series.
+	 *
+	 * @return the sampling interval in simulated seconds
+	 */
 	public double getSamplingIntervalSeconds() {
 		return samplingIntervalSeconds;
 	}
 
+	/**
+	 * Returns the model the deployment serves, which the workload targets unless a trace row says
+	 * otherwise.
+	 *
+	 * @return the model profile
+	 */
 	public ModelProfile getModel() {
 		return model;
 	}
 
+	/**
+	 * Returns the device template every replica runs on; with several replicas each receives a
+	 * distinct copy carrying its own identifier.
+	 *
+	 * @return the device profile
+	 */
 	public GpuProfile getDevice() {
 		return device;
 	}
 
+	/**
+	 * Returns one specification per replica, in deployment order.
+	 *
+	 * @return the replica specifications, as an unmodifiable list
+	 */
 	public List<ReplicaSpec> getReplicas() {
 		return replicas;
 	}
 
+	/**
+	 * Returns the workload plan that generates the arrival stream and the request lengths.
+	 *
+	 * @return the workload plan
+	 */
 	public WorkloadPlan getWorkload() {
 		return workload;
 	}
 
+	/**
+	 * Returns the admission policy, which may be a chain of rules, that decides whether a request
+	 * enters the service.
+	 *
+	 * @return the admission policy
+	 */
 	public AdmissionPolicy getAdmission() {
 		return admission;
 	}
 
+	/**
+	 * Returns the routing policy that chooses the replica for an admitted request.
+	 *
+	 * @return the routing policy
+	 */
 	public RoutingPolicy getRouting() {
 		return routing;
 	}
 
+	/**
+	 * Returns the scheduling policy that orders the waiting queue of every replica.
+	 *
+	 * @return the scheduling policy
+	 */
 	public SchedulingPolicy getScheduling() {
 		return scheduling;
 	}
 
+	/**
+	 * Returns the execution cost model that prices the prefill and decode steps.
+	 *
+	 * @return the cost model
+	 */
 	public ExecutionCostModel getCost() {
 		return cost;
 	}
 
+	/**
+	 * Returns the settings the scenario was built from, kept so the artifacts can echo the
+	 * effective configuration.
+	 * <p>
+	 * Loading is strict: a required value that is missing or malformed is refused, and a key that
+	 * nothing reads produces a warning rather than being dropped silently, so a misspelled setting
+	 * surfaces instead of passing for a designed one.
+	 *
+	 * @return the source settings
+	 */
 	public Settings getSettings() {
 		return settings;
 	}
 
+	/**
+	 * Returns a one-line description of the deployment and its workload, for the console.
+	 *
+	 * @return the description
+	 */
 	@Override
 	public String toString() {
 		return "Scenario[" + name + ", " + replicas.size() + " replica(s) of " + model.getId() + " on "

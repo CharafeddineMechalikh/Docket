@@ -108,50 +108,122 @@ public final class TraceRecord {
 		return value;
 	}
 
+	/**
+	 * Returns the instant the recorded request arrived, in seconds from the start of the replay,
+	 * which is the offset order in which the workload source releases the rows.
+	 *
+	 * @return arrival seconds, zero or more, never negative nor NaN
+	 */
 	public double arrivalTime() {
 		return arrivalTime;
 	}
 
+	/**
+	 * Returns the model the recorded request targeted, the key the workload plan uses to route the
+	 * replayed request to a replica serving that model.
+	 *
+	 * @return the model identifier, not empty
+	 */
 	public String modelId() {
 		return modelId;
 	}
 
+	/**
+	 * Returns the prompt length of the recorded request, in tokens, the length the replayed request
+	 * is prefilled over.
+	 *
+	 * @return prompt tokens, at least one
+	 */
 	public int inputTokens() {
 		return inputTokens;
 	}
 
+	/**
+	 * Returns the output length the recorded request produced, in tokens. On replay this is an
+	 * oracle value, so the workload plan draws the prediction the controller sees separately.
+	 *
+	 * @return output tokens, at least one
+	 */
 	public int outputTokens() {
 		return outputTokens;
 	}
 
+	/**
+	 * Returns the priority of the recorded request, a higher value meaning a higher priority: the
+	 * priority-first policy serves the largest value first, then breaks ties by arrival.
+	 *
+	 * @return the priority, any integer, zero when the trace declares none
+	 */
 	public int priority() {
 		return priority;
 	}
 
+	/**
+	 * Returns the service class the recorded request belonged to, the label the latency targets
+	 * and the report rows are grouped by.
+	 *
+	 * @return the class name, {@code "default"} when the trace or the caller left it empty
+	 */
 	public String serviceClass() {
 		return serviceClass;
 	}
 
+	/**
+	 * Returns the session the recorded request belonged to, the key that ties successive turns of a
+	 * conversation together.
+	 *
+	 * @return the session identifier, the empty string when the trace has no session column
+	 */
 	public String sessionId() {
 		return sessionId;
 	}
 
+	/**
+	 * Returns the time-to-first-token target of the recorded request, in seconds measured from its
+	 * arrival.
+	 *
+	 * @return seconds, zero when the row declares no such target (the check is then skipped)
+	 */
 	public double ttftTarget() {
 		return ttftTarget;
 	}
 
+	/**
+	 * Returns the end-to-end target of the recorded request, in seconds measured from its arrival,
+	 * the deadline a replica may abort on.
+	 *
+	 * @return seconds, zero when the row declares no such target
+	 */
 	public double endToEndTarget() {
 		return endToEndTarget;
 	}
 
+	/**
+	 * Returns the per-token target of the recorded request, the mean inter-token delay it may
+	 * tolerate, in seconds.
+	 *
+	 * @return seconds per token, zero when the row declares no such target
+	 */
 	public double tpotTarget() {
 		return tpotTarget;
 	}
 
+	/**
+	 * Returns how long the client waits after its arrival before abandoning the request, in
+	 * seconds.
+	 *
+	 * @return seconds, zero when the client never gives up
+	 */
 	public double cancellationDelay() {
 		return cancellationDelay;
 	}
 
+	/**
+	 * Returns a one-line summary of the row, with the arrival instant, the model and the two token
+	 * lengths, for logs and test failures.
+	 *
+	 * @return the summary line
+	 */
 	@Override
 	public String toString() {
 		return "TraceRecord[t=" + arrivalTime + ", " + modelId + ", in=" + inputTokens + ", out=" + outputTokens + "]";

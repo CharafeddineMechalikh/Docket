@@ -123,6 +123,12 @@ public final class TraceLoader {
 			return out.toString();
 		}
 
+		/**
+		 * Returns the description of the read trace, so that a trace printed in a log states the same
+		 * transformations as the run header.
+		 *
+		 * @return the description, identical to {@link #describe()}
+		 */
 		@Override
 		public String toString() {
 			return describe();

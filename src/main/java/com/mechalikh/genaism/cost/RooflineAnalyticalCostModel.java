@@ -307,6 +307,15 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 		device.flopsPerSecond(model.getPrecision());
 	}
 
+	/**
+	 * Returns the batch size above which an estimate is labelled as extrapolated.
+	 * <p>
+	 * The analytical form was sanity-checked up to this many concurrent sequences. A larger batch
+	 * is still scored, but the estimate carries a warning so that a reader can tell a measured
+	 * operating point from one the model was never checked against.
+	 *
+	 * @return the supported batch size in sequences, positive
+	 */
 	public int getSupportedMaxBatchSize() {
 		return supportedMaxBatchSize;
 	}
@@ -324,6 +333,15 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 		return this;
 	}
 
+	/**
+	 * Returns the step size above which an estimate is labelled as extrapolated.
+	 * <p>
+	 * A prefill of more tokens than this, or a decode step whose batch carries more, is still
+	 * scored, but the estimate carries a warning because the arithmetic was checked only up to
+	 * this point.
+	 *
+	 * @return the supported tokens per step, positive
+	 */
 	public int getSupportedMaxStepTokens() {
 		return supportedMaxStepTokens;
 	}
@@ -341,6 +359,11 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 		return this;
 	}
 
+	/**
+	 * Returns a one-line description of the model and its two sanity-check limits.
+	 *
+	 * @return the model name, the supported batch size and the supported step size
+	 */
 	@Override
 	public String toString() {
 		return NAME + "[max batch " + supportedMaxBatchSize + ", max step " + supportedMaxStepTokens + " tokens]";

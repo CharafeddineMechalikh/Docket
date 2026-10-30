@@ -351,38 +351,106 @@ public class InferenceService extends SimEntity {
 		routingPolicy.reset();
 	}
 
+	/**
+	 * Returns the identifier of the model every replica of this service serves.
+	 * <p>
+	 * A request is routed inside the service only when its model identifier matches this one,
+	 * so the value decides which requests the deployment can admit.
+	 *
+	 * @return the model identifier
+	 */
 	public String getModelId() {
 		return modelId;
 	}
 
+	/**
+	 * Returns the replicas of the service in creation order.
+	 * <p>
+	 * The order fixes the replica identifiers the routing policies see in {@link #loads()}, and
+	 * it is the order in which a shutdown visits the replicas.
+	 *
+	 * @return an unmodifiable view, one entry per declared replica
+	 */
 	public List<ReplicaServer> getReplicas() {
 		return Collections.unmodifiableList(replicas);
 	}
 
+	/**
+	 * Returns the policy that decides whether an arrived request enters the service.
+	 * <p>
+	 * The policy is consulted once per arrival, after the model and the context length have
+	 * been checked, and its refusal is recorded with the reason it gives.
+	 *
+	 * @return the admission policy
+	 */
 	public AdmissionPolicy getAdmissionPolicy() {
 		return admissionPolicy;
 	}
 
+	/**
+	 * Returns the policy that chooses the replica of an admitted request.
+	 * <p>
+	 * The policy picks an index into the list returned by {@link #loads()}, and a negative
+	 * choice rejects the request with {@link OutcomeReason#ADMISSION_NO_CACHE_CAPACITY}.
+	 *
+	 * @return the routing policy
+	 */
 	public RoutingPolicy getRoutingPolicy() {
 		return routingPolicy;
 	}
 
+	/**
+	 * Returns the policy that orders the waiting queue of every replica.
+	 * <p>
+	 * The same policy instance serves all the replicas, and each replica keeps its own queue
+	 * that the policy rearranges before each scheduling decision.
+	 *
+	 * @return the scheduling policy
+	 */
 	public SchedulingPolicy getSchedulingPolicy() {
 		return schedulingPolicy;
 	}
 
+	/**
+	 * Returns the sink that receives the row of every request when its life ends.
+	 *
+	 * @return the request recorder
+	 */
 	public RequestRecorder getRecorder() {
 		return recorder;
 	}
 
+	/**
+	 * Returns how many requests have reached the service since the start of the run.
+	 * <p>
+	 * Arrivals are counted before the policies run, so a refused request is included. At the end
+	 * of a run the count must equal {@link #getFinishedRequests()}, otherwise a request was lost.
+	 *
+	 * @return arrivals counted on the simulation clock
+	 */
 	public long getArrivedRequests() {
 		return arrivedRequests;
 	}
 
+	/**
+	 * Returns how many requests have been recorded since the start of the run.
+	 * <p>
+	 * Every terminal outcome passes through
+	 * {@link #finish(InferenceRequest, RequestState, OutcomeReason)}, so the count also covers
+	 * the requests ended by the shutdown, and it is the denominator of the completion ratio of
+	 * the service.
+	 *
+	 * @return recorded requests counted on the simulation clock
+	 */
 	public long getFinishedRequests() {
 		return finishedRequests;
 	}
 
+	/**
+	 * Returns a one-line summary with the model, the number of replicas and the arrivals.
+	 *
+	 * @return the summary line
+	 */
 	@Override
 	public String toString() {
 		return "InferenceService[" + modelId + ", " + replicas.size() + " replicas, arrived=" + arrivedRequests + "]";

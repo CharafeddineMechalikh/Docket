@@ -62,11 +62,21 @@ public class CacheCapacityAdmission implements AdmissionPolicy {
 		return fits ? AdmissionDecision.admit() : AdmissionDecision.reject(OutcomeReason.ADMISSION_NO_CACHE_CAPACITY);
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code cache-capacity}
+	 */
 	@Override
 	public String name() {
 		return "cache-capacity";
 	}
 
+	/**
+	 * Returns the description, naming the headroom reserved per sequence.
+	 *
+	 * @return a one-line description
+	 */
 	@Override
 	public String describe() {
 		return name() + "(headroom " + reserveHeadroomTokens + " tokens)";

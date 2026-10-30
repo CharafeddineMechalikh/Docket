@@ -220,7 +220,8 @@ public class Report {
 	}
 
 	/**
-	 * Returns the lines of {@code config.txt}: the scenario as resolved, plus the caveats.
+	 * Returns the lines of {@code config.txt}: the scenario as resolved, plus the caveats, and the
+	 * trace description when the workload replays a recorded file.
 	 *
 	 * @return the lines
 	 */
@@ -234,6 +235,10 @@ public class Report {
 				+ scenario.getCost().calibrationSource());
 		for (String warning : runs.get(0).getWarnings())
 			lines.add("# WARNING " + warning);
+		// The loader's trace line is the only place the source file and the arrival scaling appear.
+		String trace = scenario.getSettings().raw("workload.traceDescription");
+		if (trace != null)
+			lines.add("# Trace: " + trace);
 		for (Map.Entry<String, LatencyStats> entry : pooled.entrySet())
 			lines.add("# Pooled " + entry.getKey() + ": n=" + entry.getValue().count() + " mean="
 					+ fmt(entry.getValue().mean(), 6) + " p99=" + fmt(entry.getValue().percentile(99), 6));
@@ -412,6 +417,11 @@ public class Report {
 		return acrossRepetitions.get(metric);
 	}
 
+	/**
+	 * Returns the experiment whose repetitions this report presents.
+	 *
+	 * @return the experiment
+	 */
 	public Experiment getExperiment() {
 		return experiment;
 	}

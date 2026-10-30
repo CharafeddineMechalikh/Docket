@@ -114,14 +114,41 @@ public class GpuMemoryManager {
 		return kvPoolBytes;
 	}
 
+	/**
+	 * Returns the bytes the weights occupy on the device.
+	 * <p>
+	 * The figure is the weight footprint of the model profile, derived from its parameter count
+	 * and its declared precision, and it is charged once per replica because every replica keeps
+	 * its own copy of the weights.
+	 *
+	 * @return weight bytes
+	 */
 	public double getWeightsBytes() {
 		return weightsBytes;
 	}
 
+	/**
+	 * Returns the bytes the runtime keeps back beyond the unusable fraction of the device.
+	 * <p>
+	 * CUDA contexts, allocator pools and fragmentation are not modelled individually; this
+	 * single reservation stands for all of them and is subtracted from the usable memory before
+	 * the cache pool is sized.
+	 *
+	 * @return runtime overhead bytes, zero or more
+	 */
 	public double getRuntimeOverheadBytes() {
 		return runtimeOverheadBytes;
 	}
 
+	/**
+	 * Returns the bytes kept back for the activations of the reserved sequence slots.
+	 * <p>
+	 * The reservation is the per-sequence activation footprint of the model multiplied by the
+	 * number of slots the deployment reserved, so it grows with the batch width the replica is
+	 * sized for rather than with the traffic it happens to see.
+	 *
+	 * @return activation reservation bytes, zero when no slot was reserved
+	 */
 	public double getActivationReservationBytes() {
 		return activationReservationBytes;
 	}
@@ -176,14 +203,29 @@ public class GpuMemoryManager {
 		return String.format("%.2f", gb(bytes));
 	}
 
+	/**
+	 * Returns the device the budget was computed for.
+	 *
+	 * @return the device profile
+	 */
 	public GpuProfile getDevice() {
 		return device;
 	}
 
+	/**
+	 * Returns the model the budget serves.
+	 *
+	 * @return the model profile whose weights and cache fit in the budget
+	 */
 	public ModelProfile getModel() {
 		return model;
 	}
 
+	/**
+	 * Returns a one-line description of the memory split.
+	 *
+	 * @return the description produced by {@link #describe()}
+	 */
 	@Override
 	public String toString() {
 		return "GpuMemoryManager[" + describe() + "]";

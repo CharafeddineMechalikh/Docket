@@ -171,6 +171,11 @@ public class Experiment {
 		return runs;
 	}
 
+	/**
+	 * Returns the scenario every repetition ran.
+	 *
+	 * @return the scenario
+	 */
 	public Scenario getScenario() {
 		return scenario;
 	}
@@ -250,6 +255,12 @@ public class Experiment {
 		}
 	}
 
+	/**
+	 * Returns a one-line summary of the scenario name, the configured repetitions and the
+	 * repetitions that have finished so far.
+	 *
+	 * @return the summary
+	 */
 	@Override
 	public String toString() {
 		return "Experiment[" + scenario.getName() + ", repetitions=" + scenario.getRepetitions() + ", runs="

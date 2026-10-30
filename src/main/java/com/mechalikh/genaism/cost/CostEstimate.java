@@ -66,6 +66,12 @@ public final class CostEstimate {
 			return label;
 		}
 
+		/**
+		 * Returns the label of this term, so that a log line or an artifact names the term that bound
+		 * the predicted duration rather than its enumeration constant.
+		 *
+		 * @return the human-readable term name
+		 */
 		@Override
 		public String toString() {
 			return label;
@@ -212,6 +218,12 @@ public final class CostEstimate {
 				limitingTerm, flops, bytes, arithmeticIntensity == Double.POSITIVE_INFINITY ? 0 : arithmeticIntensity);
 	}
 
+	/**
+	 * Returns a one-line description that keeps the estimated duration next to its limiting term
+	 * and its provenance, so an estimate is not read as an observation.
+	 *
+	 * @return the duration, the regime, the intensity and the provenance of the estimate
+	 */
 	@Override
 	public String toString() {
 		return "CostEstimate[" + describe() + ", " + provenance.label() + ", calibrated=" + calibrated + "]";

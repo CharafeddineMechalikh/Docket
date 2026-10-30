@@ -102,6 +102,12 @@ public class WorkloadPlan {
 			return out.toString();
 		}
 
+		/**
+		 * Returns the configuration name, so that the pattern prints in an error message exactly as
+		 * a scenario file spells it.
+		 *
+		 * @return the label
+		 */
 		@Override
 		public String toString() {
 			return label;
@@ -161,6 +167,12 @@ public class WorkloadPlan {
 			throw new IllegalArgumentException("Unknown length prediction \"" + value + "\"; known modes are " + known);
 		}
 
+		/**
+		 * Returns the configuration name, so that the mode prints in an error message exactly as a
+		 * scenario file spells it.
+		 *
+		 * @return the label
+		 */
 		@Override
 		public String toString() {
 			return label;
@@ -330,15 +342,23 @@ public class WorkloadPlan {
 					rateProfilePerMinute.length));
 			break;
 		case TRACE:
-			out.append(", trace of ").append(trace.size()).append(" rows");
+			out.append(" of ").append(trace.size()).append(" rows");
 			break;
 		default:
 			break;
 		}
-		out.append("; lengths: input=").append(inputLength == null ? "trace" : inputLength.getName());
-		out.append(", output=").append(outputToInputRatio > 0
-				? String.format(Locale.ROOT, "%.3f x input", outputToInputRatio)
-				: outputLength == null ? "trace" : outputLength.getName());
+		out.append("; lengths: input=");
+		if (isTrace() || inputLength == null)
+			out.append("trace");
+		else
+			out.append(inputLength.getName());
+		out.append(", output=");
+		if (isTrace())
+			out.append("trace");
+		else if (outputToInputRatio > 0)
+			out.append(String.format(Locale.ROOT, "%.3f x input", outputToInputRatio));
+		else
+			out.append(outputLength == null ? "trace" : outputLength.getName());
 		out.append("; prediction=").append(prediction.label);
 		return out.toString();
 	}
@@ -354,69 +374,172 @@ public class WorkloadPlan {
 			throw new IllegalArgumentException("Workload pattern \"" + pattern + "\": " + message);
 	}
 
+	/**
+	 * Returns the arrival process, which decides how the next arrival instant is drawn.
+	 *
+	 * @return the pattern, {@link Pattern#POISSON} when none was declared
+	 */
 	public Pattern getPattern() {
 		return pattern;
 	}
 
+	/**
+	 * Declares the arrival process of the workload.
+	 *
+	 * @param pattern the process, must not be {@code null}; {@link #validate()} then checks the
+	 *                parameters it needs
+	 * @return this plan
+	 */
 	public WorkloadPlan setPattern(Pattern pattern) {
 		this.pattern = pattern;
 		return this;
 	}
 
+	/**
+	 * Returns the model every generated request is addressed to, which selects the replicas able to
+	 * serve it.
+	 *
+	 * @return the model identifier, {@code "default"} when the workload does not choose one
+	 */
 	public String getModelId() {
 		return modelId;
 	}
 
+	/**
+	 * Declares the model every generated request is addressed to.
+	 *
+	 * @param modelId the model identifier stamped on each request, {@code "default"} for the
+	 *                scenario model
+	 * @return this plan
+	 */
 	public WorkloadPlan setModelId(String modelId) {
 		this.modelId = modelId;
 		return this;
 	}
 
+	/**
+	 * Returns the period of the fixed and bursty patterns, in seconds. A fixed plan releases one
+	 * request per period, a bursty plan one group per period.
+	 *
+	 * @return the period in seconds, unused by the other patterns
+	 */
 	public double getIntervalSeconds() {
 		return intervalSeconds;
 	}
 
+	/**
+	 * Declares the period of the fixed and bursty patterns.
+	 *
+	 * @param intervalSeconds seconds between two releases (or between two bursts), positive for
+	 *                        those two patterns and unused by the others
+	 * @return this plan
+	 */
 	public WorkloadPlan setIntervalSeconds(double intervalSeconds) {
 		this.intervalSeconds = intervalSeconds;
 		return this;
 	}
 
+	/**
+	 * Returns the mean arrival rate of the poisson pattern, which the time-varying pattern also
+	 * uses before its first profile boundary.
+	 *
+	 * @return the rate, in requests per minute
+	 */
 	public double getRatePerMinute() {
 		return ratePerMinute;
 	}
 
+	/**
+	 * Declares the mean arrival rate of the poisson pattern and the default rate of the
+	 * time-varying pattern.
+	 *
+	 * @param ratePerMinute mean rate in requests per minute, positive for both patterns
+	 * @return this plan
+	 */
 	public WorkloadPlan setRatePerMinute(double ratePerMinute) {
 		this.ratePerMinute = ratePerMinute;
 		return this;
 	}
 
+	/**
+	 * Returns how many requests the bursty pattern releases at the same instant.
+	 *
+	 * @return the sizes of a burst, in requests, at least one
+	 */
 	public int getBurstSize() {
 		return burstSize;
 	}
 
+	/**
+	 * Declares how many requests a burst releases together.
+	 *
+	 * @param burstSize requests released at the same instant, at least one
+	 * @return this plan
+	 */
 	public WorkloadPlan setBurstSize(int burstSize) {
 		this.burstSize = burstSize;
 		return this;
 	}
 
+	/**
+	 * Returns the minute boundaries of the time-varying rate profile, ascending. The array is the
+	 * plan's own, so a caller must not modify it.
+	 *
+	 * @return the boundaries in minutes from the start of the simulation, empty when no profile
+	 *         was declared
+	 */
 	public double[] getRateProfileMinutes() {
 		return rateProfileMinutes;
 	}
 
+	/**
+	 * Declares the piecewise-constant rate profile of the time-varying pattern.
+	 * <p>
+	 * Segment {@code i} covers the profile from boundary {@code i - 1} to boundary {@code i}, so n
+	 * boundaries need n + 1 rates, and the boundaries must ascend.
+	 *
+	 * @param minutes   boundaries in minutes from the start of the simulation, copied; {@code null}
+	 *                  stores an empty profile
+	 * @param perMinute rate of each segment in requests per minute, copied; {@code null} stores an
+	 *                  empty profile
+	 * @return this plan
+	 */
 	public WorkloadPlan setRateProfile(double[] minutes, double[] perMinute) {
 		this.rateProfileMinutes = minutes == null ? new double[0] : minutes.clone();
 		this.rateProfilePerMinute = perMinute == null ? new double[0] : perMinute.clone();
 		return this;
 	}
 
+	/**
+	 * Returns the rate of each segment of the time-varying profile, in requests per minute. The
+	 * array is the plan's own, so a caller must not modify it.
+	 *
+	 * @return one more rate than {@link #getRateProfileMinutes()} has boundaries, empty when no
+	 *         profile was declared
+	 */
 	public double[] getRateProfilePerMinute() {
 		return rateProfilePerMinute;
 	}
 
+	/**
+	 * Returns the sampler of prompt lengths.
+	 *
+	 * @return the distribution, {@code null} for a trace plan, which reads the prompt length from
+	 *         its rows
+	 */
 	public Distribution getInputLength() {
 		return inputLength;
 	}
 
+	/**
+	 * Declares the prompt length through a sampler instance.
+	 * <p>
+	 * A sampler set as an object is shared by every repetition, while one declared by name through
+	 * {@link #setInputDistribution(String, Map)} is rebuilt for each repetition.
+	 *
+	 * @param inputLength the sampler, {@code null} for a trace plan
+	 * @return this plan
+	 */
 	public WorkloadPlan setInputLength(Distribution inputLength) {
 		this.inputLength = inputLength;
 		return this;
@@ -441,10 +564,28 @@ public class WorkloadPlan {
 		return this;
 	}
 
+	/**
+	 * Returns the sampler of generated lengths, used when the output is not correlated with the
+	 * prompt.
+	 *
+	 * @return the distribution, {@code null} when lengths are derived through
+	 *         {@link #setOutputToInputRatio(double)} or replayed from a trace
+	 */
 	public Distribution getOutputLength() {
 		return outputLength;
 	}
 
+	/**
+	 * Declares the generated length through a sampler instance, used when the output is not
+	 * derived from the prompt.
+	 * <p>
+	 * As for the prompt, a sampler set as an object is shared by every repetition, while one
+	 * declared by name through {@link #setOutputDistribution(String, Map)} is rebuilt per
+	 * repetition.
+	 *
+	 * @param outputLength the sampler, or {@code null} when the length is correlated or replayed
+	 * @return this plan
+	 */
 	public WorkloadPlan setOutputLength(Distribution outputLength) {
 		this.outputLength = outputLength;
 		return this;
@@ -533,141 +674,340 @@ public class WorkloadPlan {
 		return attributes == null ? Collections.emptyMap() : Collections.unmodifiableMap(new LinkedHashMap<>(attributes));
 	}
 
+	/**
+	 * Returns the factor that scales the prompt length into the drawn output length.
+	 *
+	 * @return tokens generated per prompt token, {@code 0} when the two lengths are drawn
+	 *         independently
+	 */
 	public double getOutputToInputRatio() {
 		return outputToInputRatio;
 	}
 
+	/**
+	 * Declares the output length as a multiple of the prompt length, plus noise when jitter is
+	 * set.
+	 *
+	 * @param outputToInputRatio tokens generated per prompt token, {@code 0} to draw the output
+	 *                           length independently from {@link #getOutputLength()}; negative
+	 *                           values are rejected by {@link #validate()}
+	 * @return this plan
+	 */
 	public WorkloadPlan setOutputToInputRatio(double outputToInputRatio) {
 		this.outputToInputRatio = outputToInputRatio;
 		return this;
 	}
 
+	/**
+	 * Returns the standard deviation of the noise added to a correlated output length.
+	 *
+	 * @return the standard deviation in tokens, {@code 0} when the ratio is applied without noise
+	 */
 	public double getOutputJitterTokens() {
 		return outputJitterTokens;
 	}
 
+	/**
+	 * Declares the noise around a correlated output length, drawn from a normal distribution of
+	 * mean zero.
+	 *
+	 * @param outputJitterTokens standard deviation in tokens, {@code 0} for a deterministic
+	 *                           multiple of the prompt length
+	 * @return this plan
+	 */
 	public WorkloadPlan setOutputJitterTokens(double outputJitterTokens) {
 		this.outputJitterTokens = outputJitterTokens;
 		return this;
 	}
 
+	/**
+	 * Returns the largest output length a generated request may ask for.
+	 *
+	 * @return the bound in tokens; every drawn or correlated length is clamped to it and to at
+	 *         least one token
+	 */
 	public int getMaxOutputTokens() {
 		return maxOutputTokens;
 	}
 
+	/**
+	 * Declares the upper bound on the output length.
+	 *
+	 * @param maxOutputTokens the bound in tokens, at least one
+	 * @return this plan
+	 */
 	public WorkloadPlan setMaxOutputTokens(int maxOutputTokens) {
 		this.maxOutputTokens = maxOutputTokens;
 		return this;
 	}
 
+	/**
+	 * Returns what the controller is allowed to know about the output length when it must decide.
+	 * This is the deployability knob of the experiment, not a property of the traffic.
+	 *
+	 * @return the prediction mode, {@link LengthPrediction#ORACLE} by default
+	 */
 	public LengthPrediction getPrediction() {
 		return prediction;
 	}
 
+	/**
+	 * Declares what the controller is allowed to know about the output length.
+	 *
+	 * @param prediction the mode, which fixes the predicted length carried by every generated
+	 *                   request; must not be {@code null}
+	 * @return this plan
+	 */
 	public WorkloadPlan setPrediction(LengthPrediction prediction) {
 		this.prediction = prediction;
 		return this;
 	}
 
+	/**
+	 * Returns the multiplier the controller implicitly applies to the real length under
+	 * {@link LengthPrediction#BIASED_FACTOR}.
+	 *
+	 * @return the factor, {@code 1} by default and unused by the other modes
+	 */
 	public double getPredictionFactor() {
 		return predictionFactor;
 	}
 
+	/**
+	 * Declares the multiplier of the biased prediction.
+	 *
+	 * @param predictionFactor multiplier applied to the drawn length, positive; unused unless the
+	 *                         mode is {@link LengthPrediction#BIASED_FACTOR}
+	 * @return this plan
+	 */
 	public WorkloadPlan setPredictionFactor(double predictionFactor) {
 		this.predictionFactor = predictionFactor;
 		return this;
 	}
 
+	/**
+	 * Returns the length the controller sees under {@link LengthPrediction#CONSTANT}, whatever
+	 * the request.
+	 *
+	 * @return the predicted length in tokens, {@code 128} by default and unused by the other modes
+	 */
 	public int getPredictionConstant() {
 		return predictionConstant;
 	}
 
+	/**
+	 * Declares the length the controller sees in constant mode.
+	 *
+	 * @param predictionConstant the predicted length in tokens, at least one; unused unless the
+	 *                           mode is {@link LengthPrediction#CONSTANT}
+	 * @return this plan
+	 */
 	public WorkloadPlan setPredictionConstant(int predictionConstant) {
 		this.predictionConstant = predictionConstant;
 		return this;
 	}
 
+	/**
+	 * Returns how many requests the source may generate before it stops.
+	 *
+	 * @return the cap, {@link Integer#MAX_VALUE} when the workload is unbounded; a trace plan
+	 *         usually caps it at the number of rows
+	 */
 	public int getMaxRequests() {
 		return maxRequests;
 	}
 
+	/**
+	 * Declares how many requests the source may generate.
+	 *
+	 * @param maxRequests the cap, at least one; {@link Integer#MAX_VALUE} to generate until the
+	 *                    simulation ends
+	 * @return this plan
+	 */
 	public WorkloadPlan setMaxRequests(int maxRequests) {
 		this.maxRequests = maxRequests;
 		return this;
 	}
 
+	/**
+	 * Returns the simulated instant after which no new request is released.
+	 *
+	 * @return seconds from the start of the simulation, {@link Double#MAX_VALUE} for no limit;
+	 *         only the open-loop patterns consult it, since a trace stops at the end of its rows
+	 */
 	public double getStopArrivalsAfterSeconds() {
 		return stopArrivalsAfterSeconds;
 	}
 
+	/**
+	 * Declares when arrivals stop.
+	 *
+	 * @param stopArrivalsAfterSeconds seconds from the start of the simulation, positive;
+	 *                                 {@link Double#MAX_VALUE} keeps arrivals running for the
+	 *                                 whole run
+	 * @return this plan
+	 */
 	public WorkloadPlan setStopArrivalsAfterSeconds(double stopArrivalsAfterSeconds) {
 		this.stopArrivalsAfterSeconds = stopArrivalsAfterSeconds;
 		return this;
 	}
 
+	/**
+	 * Returns the priority stamped on generated requests, which priority-aware policies compare
+	 * when they choose between waiting requests.
+	 *
+	 * @return the priority, {@code 0} by default; higher values are served first
+	 */
 	public int getPriority() {
 		return priority;
 	}
 
+	/**
+	 * Declares the priority of generated requests.
+	 *
+	 * @param priority the priority, higher values are served first, {@code 0} for neutral requests
+	 * @return this plan
+	 */
 	public WorkloadPlan setPriority(int priority) {
 		this.priority = priority;
 		return this;
 	}
 
+	/**
+	 * Returns the service class stamped on generated requests, which selects the service level
+	 * objective they are measured against.
+	 *
+	 * @return the class name, {@code "default"} when none was declared
+	 */
 	public String getServiceClass() {
 		return serviceClass;
 	}
 
+	/**
+	 * Declares the service class of generated requests.
+	 *
+	 * @param serviceClass the class name used to pick the objective, {@code null} or empty falls
+	 *                     back to {@code "default"}
+	 * @return this plan
+	 */
 	public WorkloadPlan setServiceClass(String serviceClass) {
 		this.serviceClass = serviceClass == null || serviceClass.isEmpty() ? "default" : serviceClass;
 		return this;
 	}
 
+	/**
+	 * Returns the time-to-first-token target of generated requests.
+	 *
+	 * @return seconds from the arrival instant, {@code 0} when the workload declares no target
+	 */
 	public double getTtftTargetSeconds() {
 		return ttftTargetSeconds;
 	}
 
+	/**
+	 * Declares the time-to-first-token target, which becomes an absolute deadline once the
+	 * arrival instant is known.
+	 *
+	 * @param ttftTargetSeconds seconds from the arrival instant, {@code 0} for no target
+	 * @return this plan
+	 */
 	public WorkloadPlan setTtftTargetSeconds(double ttftTargetSeconds) {
 		this.ttftTargetSeconds = ttftTargetSeconds;
 		return this;
 	}
 
+	/**
+	 * Returns the end-to-end target of generated requests.
+	 *
+	 * @return seconds from the arrival instant, {@code 0} when the workload declares no target
+	 */
 	public double getEndToEndTargetSeconds() {
 		return endToEndTargetSeconds;
 	}
 
+	/**
+	 * Declares the end-to-end target, which becomes an absolute deadline once the arrival instant
+	 * is known.
+	 *
+	 * @param endToEndTargetSeconds seconds from the arrival instant, {@code 0} for no target
+	 * @return this plan
+	 */
 	public WorkloadPlan setEndToEndTargetSeconds(double endToEndTargetSeconds) {
 		this.endToEndTargetSeconds = endToEndTargetSeconds;
 		return this;
 	}
 
+	/**
+	 * Returns the per-token target of generated requests.
+	 *
+	 * @return seconds per output token, {@code 0} when the workload declares no target
+	 */
 	public double getTpotTargetSeconds() {
 		return tpotTargetSeconds;
 	}
 
+	/**
+	 * Declares the per-token target. Unlike the other targets it is stored as a duration, since it
+	 * does not depend on the arrival instant.
+	 *
+	 * @param tpotTargetSeconds seconds per output token, {@code 0} for no target
+	 * @return this plan
+	 */
 	public WorkloadPlan setTpotTargetSeconds(double tpotTargetSeconds) {
 		this.tpotTargetSeconds = tpotTargetSeconds;
 		return this;
 	}
 
+	/**
+	 * Returns how long a generated request may wait before the client abandons it.
+	 *
+	 * @return seconds from the arrival instant, {@code 0} when clients never abandon
+	 */
 	public double getCancellationDelaySeconds() {
 		return cancellationDelaySeconds;
 	}
 
+	/**
+	 * Declares the abandonment delay, which becomes an absolute cancellation instant once the
+	 * arrival instant is known.
+	 *
+	 * @param cancellationDelaySeconds seconds from the arrival instant, {@code 0} to never
+	 *                                 abandon
+	 * @return this plan
+	 */
 	public WorkloadPlan setCancellationDelaySeconds(double cancellationDelaySeconds) {
 		this.cancellationDelaySeconds = cancellationDelaySeconds;
 		return this;
 	}
 
+	/**
+	 * Returns the recorded rows the trace pattern replays. The rows must be sorted by arrival time,
+	 * which {@link #validate()} checks, and the list is shared with every repetition.
+	 *
+	 * @return the rows, empty when no trace was loaded
+	 */
 	public List<TraceRecord> getTrace() {
 		return trace;
 	}
 
+	/**
+	 * Declares the rows the trace pattern replays.
+	 *
+	 * @param trace the rows sorted by non-decreasing arrival time, kept as given rather than
+	 *              copied; {@code null} stores an empty list, which {@link #validate()} rejects
+	 *              for the trace pattern
+	 * @return this plan
+	 */
 	public WorkloadPlan setTrace(List<TraceRecord> trace) {
 		this.trace = trace == null ? Collections.emptyList() : trace;
 		return this;
 	}
 
+	/**
+	 * Returns the one-line description wrapped in {@code WorkloadPlan[...]}.
+	 *
+	 * @return the description of the plan
+	 */
 	@Override
 	public String toString() {
 		return "WorkloadPlan[" + describe() + "]";

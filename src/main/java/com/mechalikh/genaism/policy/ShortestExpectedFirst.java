@@ -45,11 +45,22 @@ public class ShortestExpectedFirst implements SchedulingPolicy {
 				.thenComparingLong(InferenceRequest::getRequestId);
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code shortest-expected-first}
+	 */
 	@Override
 	public String name() {
 		return "shortest-expected-first";
 	}
 
+	/**
+	 * The order uses the declared output length, which a controller can obtain, so it needs no
+	 * oracle information.
+	 *
+	 * @return always {@code false}
+	 */
 	@Override
 	public boolean usesOracleInformation() {
 		return false;

@@ -305,11 +305,22 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 		this.arrivalTime = time;
 	}
 
+	/**
+	 * Insertion serial assigned by the {@code FutureQueue} when the request is enqueued.
+	 *
+	 * @return the serial number, {@code 0} before the request has been queued
+	 */
 	@Override
 	public long getSerial() {
 		return serial;
 	}
 
+	/**
+	 * Assigns the insertion serial that keeps requests arriving at the same instant in a
+	 * stable order.
+	 *
+	 * @param serial the serial number, {@code 0} when it is still unknown
+	 */
 	@Override
 	public void setSerial(long serial) {
 		this.serial = serial;
@@ -328,6 +339,13 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 		return byTime != 0 ? byTime : Long.compare(serial, other.serial);
 	}
 
+	/**
+	 * Two requests are equal when they carry the same identifier, which is unique inside one
+	 * experiment.
+	 *
+	 * @param obj the object to compare with
+	 * @return {@code true} when {@code obj} is a request with the same identifier
+	 */
 	@Override
 	public boolean equals(Object obj) {
 		if (this == obj)
@@ -337,6 +355,12 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 		return requestId == ((InferenceRequest) obj).requestId;
 	}
 
+	/**
+	 * Hash code derived from the request identifier, consistent with
+	 * {@link #equals(Object)}.
+	 *
+	 * @return the hash of the identifier
+	 */
 	@Override
 	public int hashCode() {
 		return Long.hashCode(requestId);
@@ -351,49 +375,115 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 		return "req-" + requestId;
 	}
 
+	/**
+	 * Identifier that distinguishes this request from every other one in the same experiment.
+	 *
+	 * @return the request identifier
+	 */
 	public long getRequestId() {
 		return requestId;
 	}
 
+	/**
+	 * Model this request is addressed to, which determines the replica set able to serve it.
+	 *
+	 * @return the model identifier
+	 */
 	public String getModelId() {
 		return modelId;
 	}
 
+	/**
+	 * Tenant that issued the request, used by policies that separate or cap tenants.
+	 *
+	 * @return the tenant identifier, {@code "default"} when the request was not assigned one
+	 */
 	public String getTenantId() {
 		return tenantId;
 	}
 
+	/**
+	 * Assigns the tenant that issued the request.
+	 *
+	 * @param tenantId tenant identifier, {@code null} falls back to {@code "default"}
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setTenantId(String tenantId) {
 		this.tenantId = tenantId == null ? "default" : tenantId;
 		return this;
 	}
 
+	/**
+	 * Service class of the request, which selects the service level objective it is
+	 * evaluated against.
+	 *
+	 * @return the service class name, {@code "default"} when it was not set
+	 */
 	public String getServiceClass() {
 		return serviceClass;
 	}
 
+	/**
+	 * Assigns the service class used to pick the service level objective for this request.
+	 *
+	 * @param serviceClass service class name, {@code null} or empty falls back to
+	 *                     {@code "default"}
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setServiceClass(String serviceClass) {
 		this.serviceClass = serviceClass == null || serviceClass.isEmpty() ? "default" : serviceClass;
 		return this;
 	}
 
+	/**
+	 * Scheduling priority of the request, meaningful only for priority based policies.
+	 *
+	 * @return the priority, {@code 0} when the workload did not specify one; higher wins
+	 */
 	public int getPriority() {
 		return priority;
 	}
 
+	/**
+	 * Assigns the scheduling priority, consulted by priority aware policies when they must
+	 * choose between waiting requests.
+	 *
+	 * @param priority the priority, higher values are served first, {@code 0} for a neutral
+	 *                 request
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setPriority(int priority) {
 		this.priority = priority;
 		return this;
 	}
 
+	/**
+	 * Length of the prompt, which drives the prefill cost of the request.
+	 *
+	 * @return the number of prompt tokens, always at least one
+	 */
 	public int getInputTokens() {
 		return inputTokens;
 	}
 
+	/**
+	 * Number of tokens the workload asks the model to generate, known exactly when a trace
+	 * is replayed.
+	 *
+	 * @return the requested output length, in tokens
+	 */
 	public int getOutputTokens() {
 		return outputTokens;
 	}
 
+	/**
+	 * Sets the output length requested by the workload. The predicted length used by online
+	 * controllers is reset to the same value.
+	 *
+	 * @param outputTokens number of tokens to generate, at least one
+	 * @return this request, so that setters can be chained
+	 * @throws IllegalArgumentException when {@code outputTokens} is below one
+	 */
 	public InferenceRequest setOutputTokens(int outputTokens) {
 		if (outputTokens < 1)
 			throw new IllegalArgumentException("Request " + requestId + " asks for " + outputTokens
@@ -403,10 +493,23 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 		return this;
 	}
 
+	/**
+	 * Hard upper bound the generator may never exceed, whatever the workload drew.
+	 *
+	 * @return the maximum output length, in tokens, {@link Integer#MAX_VALUE} when unbounded
+	 */
 	public int getMaxOutputTokens() {
 		return maxOutputTokens;
 	}
 
+	/**
+	 * Sets the hard cap on the generated tokens, which truncates the request when the drawn
+	 * length is larger.
+	 *
+	 * @param maxOutputTokens the cap, in tokens, at least one
+	 * @return this request, so that setters can be chained
+	 * @throws IllegalArgumentException when {@code maxOutputTokens} is below one
+	 */
 	public InferenceRequest setMaxOutputTokens(int maxOutputTokens) {
 		if (maxOutputTokens < 1)
 			throw new IllegalArgumentException("Request " + requestId + " has a maximum output of "
@@ -415,10 +518,23 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 		return this;
 	}
 
+	/**
+	 * Output length the controller is allowed to know at admission time, as opposed to the
+	 * oracle length drawn by the workload.
+	 *
+	 * @return the predicted output length, in tokens
+	 */
 	public int getPredictedOutputTokens() {
 		return predictedOutputTokens;
 	}
 
+	/**
+	 * Sets the output length the controller may use before the request completes.
+	 *
+	 * @param predictedOutputTokens the estimate, in tokens, at least one
+	 * @return this request, so that setters can be chained
+	 * @throws IllegalArgumentException when {@code predictedOutputTokens} is below one
+	 */
 	public InferenceRequest setPredictedOutputTokens(int predictedOutputTokens) {
 		if (predictedOutputTokens < 1)
 			throw new IllegalArgumentException("Request " + requestId + " has a predicted output of "
@@ -427,177 +543,410 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 		return this;
 	}
 
+	/**
+	 * Absolute time by which the first token is expected.
+	 *
+	 * @return the deadline as a simulation time, in seconds, {@code 0} when none applies
+	 */
 	public double getTtftDeadline() {
 		return ttftDeadline;
 	}
 
+	/**
+	 * Sets the absolute time by which the first token is expected.
+	 *
+	 * @param ttftDeadline the deadline as a simulation time, in seconds, {@code 0} to disable
+	 *                     it
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setTtftDeadline(double ttftDeadline) {
 		this.ttftDeadline = ttftDeadline;
 		return this;
 	}
 
+	/**
+	 * Absolute time by which the whole request, last token included, must finish.
+	 *
+	 * @return the deadline as a simulation time, in seconds, {@code 0} when none applies
+	 */
 	public double getEndToEndDeadline() {
 		return endToEndDeadline;
 	}
 
+	/**
+	 * Sets the absolute time by which the whole request must finish.
+	 *
+	 * @param endToEndDeadline the deadline as a simulation time, in seconds, {@code 0} to
+	 *                         disable it
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setEndToEndDeadline(double endToEndDeadline) {
 		this.endToEndDeadline = endToEndDeadline;
 		return this;
 	}
 
+	/**
+	 * Per-token latency target the request is graded against.
+	 *
+	 * @return the target, in seconds per output token, {@code 0} when none applies
+	 */
 	public double getTpotTarget() {
 		return tpotTarget;
 	}
 
+	/**
+	 * Sets the per-token latency target used to grade the request.
+	 *
+	 * @param tpotTarget the target, in seconds per output token, {@code 0} to disable it
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setTpotTarget(double tpotTarget) {
 		this.tpotTarget = tpotTarget;
 		return this;
 	}
 
+	/**
+	 * Absolute time at which the client stops waiting and abandons the request.
+	 *
+	 * @return the cancellation time as a simulation time, in seconds, {@code 0} when the
+	 *         request is never cancelled
+	 */
 	public double getCancellationTime() {
 		return cancellationTime;
 	}
 
+	/**
+	 * Sets the absolute time at which the client abandons the request.
+	 *
+	 * @param cancellationTime the cancellation time as a simulation time, in seconds,
+	 *                         {@code 0} to never cancel
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setCancellationTime(double cancellationTime) {
 		this.cancellationTime = cancellationTime;
 		return this;
 	}
 
+	/**
+	 * Session the request belongs to, read by prefix-aware extensions that reuse cached
+	 * context across successive requests.
+	 *
+	 * @return the session identifier, empty when the request has no session
+	 */
 	public String getSessionId() {
 		return sessionId;
 	}
 
+	/**
+	 * Associates the request with a session, or clears the association.
+	 *
+	 * @param sessionId the session identifier, {@code null} is stored as an empty string
+	 * @return this request, so that setters can be chained
+	 */
 	public InferenceRequest setSessionId(String sessionId) {
 		this.sessionId = sessionId == null ? "" : sessionId;
 		return this;
 	}
 
+	/**
+	 * Lifecycle state the request currently occupies.
+	 *
+	 * @return the current state, {@link RequestState#CREATED} before the request is admitted
+	 */
 	public RequestState getState() {
 		return state;
 	}
 
+	/**
+	 * Machine-readable code explaining why the request ended, for example the rejection or
+	 * timeout cause.
+	 *
+	 * @return the reason code, empty when the request succeeded or has not finished yet
+	 */
 	public String getOutcomeReason() {
 		return outcomeReason;
 	}
 
+	/**
+	 * Replica that serves, or served, the request.
+	 *
+	 * @return the replica identifier, {@code -1} when no replica was assigned yet
+	 */
 	public int getReplicaId() {
 		return replicaId;
 	}
 
+	/**
+	 * Records the replica chosen for the request, by the placement or routing policy.
+	 *
+	 * @param replicaId the replica identifier, {@code -1} to mark the request as unassigned
+	 */
 	public void setReplicaId(int replicaId) {
 		this.replicaId = replicaId;
 	}
 
+	/**
+	 * Time at which the request reached the service, the origin of TTFT and end-to-end
+	 * latency.
+	 *
+	 * @return the arrival time as a simulation time, in seconds
+	 */
 	public double getArrivalTime() {
 		return arrivalTime;
 	}
 
+	/**
+	 * Time at which the admission policy accepted the request.
+	 *
+	 * @return the admission time as a simulation time, in seconds, {@code 0} when the request
+	 *         has not been admitted
+	 */
 	public double getAdmittedTime() {
 		return admittedTime;
 	}
 
+	/**
+	 * Records the time at which the admission policy accepted the request.
+	 *
+	 * @param admittedTime the admission time as a simulation time, in seconds
+	 */
 	public void setAdmittedTime(double admittedTime) {
 		this.admittedTime = admittedTime;
 	}
 
+	/**
+	 * Time at which the request first entered the queue of its replica.
+	 *
+	 * @return the queue entry time as a simulation time, in seconds, {@code 0} when the
+	 *         request was never queued
+	 */
 	public double getQueueEntryTime() {
 		return queueEntryTime;
 	}
 
+	/**
+	 * Records that the request entered a replica queue. The same value becomes the start of
+	 * the current queueing step.
+	 *
+	 * @param queueEntryTime the queue entry time as a simulation time, in seconds
+	 */
 	public void setQueueEntryTime(double queueEntryTime) {
 		this.queueEntryTime = queueEntryTime;
 		this.lastQueueEntryTime = queueEntryTime;
 	}
 
+	/**
+	 * Start of the most recent queueing step, which moves forward when a preempted request is
+	 * queued again.
+	 *
+	 * @return the time as a simulation time, in seconds, {@code 0} when the request was never
+	 *         queued
+	 */
 	public double getLastQueueEntryTime() {
 		return lastQueueEntryTime;
 	}
 
+	/**
+	 * Time at which the first prefill chunk of the request reached the GPU.
+	 *
+	 * @return the prefill start as a simulation time, in seconds, {@code 0} when prefill has
+	 *         not started
+	 */
 	public double getPrefillStartTime() {
 		return prefillStartTime;
 	}
 
+	/**
+	 * Records the time at which the first prefill chunk reached the GPU.
+	 *
+	 * @param prefillStartTime the start time as a simulation time, in seconds
+	 */
 	public void setPrefillStartTime(double prefillStartTime) {
 		this.prefillStartTime = prefillStartTime;
 	}
 
+	/**
+	 * Time at which the first token was emitted, the end of prefill from the client view.
+	 *
+	 * @return the time as a simulation time, in seconds, {@code 0} while no token exists
+	 */
 	public double getFirstTokenTime() {
 		return firstTokenTime;
 	}
 
+	/**
+	 * Time at which the last token of the request was emitted.
+	 *
+	 * @return the time as a simulation time, in seconds, {@code 0} while no token exists
+	 */
 	public double getLastTokenTime() {
 		return lastTokenTime;
 	}
 
+	/**
+	 * Time at which the request reached its terminal state, completion or otherwise.
+	 *
+	 * @return the time as a simulation time, in seconds, {@code 0} while the request is still
+	 *         inside the system
+	 */
 	public double getTerminalTime() {
 		return terminalTime;
 	}
 
+	/**
+	 * Tokens generated so far, the first one being produced by the prefill.
+	 *
+	 * @return the number of tokens generated, in tokens, {@code 0} before the first one
+	 */
 	public int getGeneratedTokens() {
 		return generatedTokens;
 	}
 
+	/**
+	 * Tokens of the context currently held in the KV cache for this request, which is what a
+	 * preemption would discard.
+	 *
+	 * @return the number of cached tokens, in tokens
+	 */
 	public int getCachedTokens() {
 		return cachedTokens;
 	}
 
+	/**
+	 * Records how much of the context is currently cached for the request.
+	 *
+	 * @param cachedTokens the number of cached tokens, negative values are clamped to
+	 *                     {@code 0}
+	 */
 	public void setCachedTokens(int cachedTokens) {
 		this.cachedTokens = Math.max(0, cachedTokens);
 	}
 
+	/**
+	 * KV-cache blocks currently reserved for the request, used by the memory admission check.
+	 *
+	 * @return the number of blocks held
+	 */
 	public int getAllocatedBlocks() {
 		return allocatedBlocks;
 	}
 
+	/**
+	 * Records the KV-cache blocks reserved for the request.
+	 *
+	 * @param allocatedBlocks the number of blocks, negative values are clamped to {@code 0}
+	 */
 	public void setAllocatedBlocks(int allocatedBlocks) {
 		this.allocatedBlocks = Math.max(0, allocatedBlocks);
 	}
 
+	/**
+	 * Sum of the decode-iteration durations observed after the first token.
+	 *
+	 * @return the accumulated inter-token latency, in seconds
+	 */
 	public double getInterTokenLatencySum() {
 		return interTokenLatencySum;
 	}
 
+	/**
+	 * Number of decode iterations whose duration was accumulated, the denominator of the
+	 * mean inter-token latency.
+	 *
+	 * @return the count, {@code 0} when no decode iteration was observed
+	 */
 	public int getInterTokenLatencyCount() {
 		return interTokenLatencyCount;
 	}
 
+	/**
+	 * Worst inter-token latency observed by the request, useful for tail analysis.
+	 *
+	 * @return the maximum inter-token latency, in seconds, {@code 0} when none was observed
+	 */
 	public double getMaxInterTokenLatency() {
 		return maxInterTokenLatency;
 	}
 
+	/**
+	 * Total time the request spent waiting in replica queues, across every queueing step
+	 * including those that followed a preemption.
+	 *
+	 * @return the waiting time, in seconds
+	 */
 	public double getQueueingSeconds() {
 		return queueingSeconds;
 	}
 
+	/**
+	 * Total prefill work done for the request, including prefills replayed after a
+	 * preemption.
+	 *
+	 * @return the prefill time, in seconds
+	 */
 	public double getPrefillSeconds() {
 		return prefillSeconds;
 	}
 
+	/**
+	 * Adds one prefill duration to the total, a preempted request may accumulate several.
+	 *
+	 * @param seconds the prefill duration to add, in seconds
+	 */
 	public void addPrefillSeconds(double seconds) {
 		prefillSeconds += seconds;
 	}
 
+	/**
+	 * Total time the request spent decoding tokens.
+	 *
+	 * @return the decode time, in seconds
+	 */
 	public double getDecodeSeconds() {
 		return decodeSeconds;
 	}
 
+	/**
+	 * Adds one decoding duration to the total.
+	 *
+	 * @param seconds the decode duration to add, in seconds
+	 */
 	public void addDecodeSeconds(double seconds) {
 		decodeSeconds += seconds;
 	}
 
+	/**
+	 * Energy attributed to the request by the power model while it occupied a replica.
+	 *
+	 * @return the energy, in joules
+	 */
 	public double getEnergyJoule() {
 		return energyJoule;
 	}
 
+	/**
+	 * Adds energy consumed on behalf of the request.
+	 *
+	 * @param joule the energy to add, in joules; non-positive values are ignored
+	 */
 	public void addEnergyJoule(double joule) {
 		if (joule > 0)
 			energyJoule += joule;
 	}
 
+	/**
+	 * Number of times the request lost its cached state, for example because its KV-cache
+	 * blocks were reclaimed, and had to be queued again.
+	 *
+	 * @return the preemption count, {@code 0} when the request was never preempted
+	 */
 	public int getPreemptionCount() {
 		return preemptionCount;
 	}
 
+	/**
+	 * Records one more preemption of the request.
+	 */
 	public void incrementPreemptions() {
 		preemptionCount++;
 	}

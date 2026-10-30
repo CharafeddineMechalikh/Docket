@@ -70,6 +70,11 @@ public final class AdmissionDecision {
 		return new AdmissionDecision(false, reason);
 	}
 
+	/**
+	 * Tells whether the request may enter a replica queue.
+	 *
+	 * @return {@code true} when admitted, {@code false} when refused
+	 */
 	public boolean isAdmitted() {
 		return admitted;
 	}
@@ -83,6 +88,11 @@ public final class AdmissionDecision {
 		return reason;
 	}
 
+	/**
+	 * Returns a short label used in logs.
+	 *
+	 * @return {@code admit}, or {@code reject} followed by the reason
+	 */
 	@Override
 	public String toString() {
 		return admitted ? "admit" : "reject(" + reason.label() + ")";

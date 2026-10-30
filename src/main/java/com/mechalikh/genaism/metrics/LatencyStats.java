@@ -188,10 +188,27 @@ public final class LatencyStats {
 		return values.get(lower) + fraction * (values.get(upper) - values.get(lower));
 	}
 
+	/**
+	 * Returns the smallest observation.
+	 * <p>
+	 * The sentinel for an empty sample set is {@code Double.NaN}, the same convention the mean and
+	 * the percentiles follow, so an artifact writer can detect a metric that was never measured
+	 * without a separate count check.
+	 *
+	 * @return the minimum, or {@code Double.NaN} when empty
+	 */
 	public double min() {
 		return values.isEmpty() ? Double.NaN : values.get(0);
 	}
 
+	/**
+	 * Returns the largest observation.
+	 * <p>
+	 * As for the other statistics, an empty sample set yields {@code Double.NaN} rather than zero,
+	 * so the absence of a measurement cannot be mistaken for a fast request.
+	 *
+	 * @return the maximum, or {@code Double.NaN} when empty
+	 */
 	public double max() {
 		return values.isEmpty() ? Double.NaN : values.get(values.size() - 1);
 	}
@@ -256,6 +273,11 @@ public final class LatencyStats {
 				count(), mean(), unit, stdDev(), percentile(50), percentile(90), percentile(95), percentile(99), max());
 	}
 
+	/**
+	 * Returns a one-line description of the summary.
+	 *
+	 * @return the count, the mean and P99, with the mean and P99 reported as NaN when empty
+	 */
 	@Override
 	public String toString() {
 		return "LatencyStats[n=" + count() + ", mean=" + mean() + ", p99=" + percentile(99) + "]";

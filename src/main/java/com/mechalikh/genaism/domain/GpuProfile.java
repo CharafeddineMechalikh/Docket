@@ -205,122 +205,306 @@ public class GpuProfile {
 		return copy;
 	}
 
+	/**
+	 * Returns the name the cluster configuration uses to identify this device.
+	 * <p>
+	 * The identifier must stay unique across the deployment, because two replicas on one
+	 * identifier would each treat the whole device memory as free.
+	 *
+	 * @return the identifier, empty when the profile was not loaded from a configuration
+	 */
 	public String getId() {
 		return id;
 	}
 
+	/**
+	 * Sets the name this device is known by, which must stay unique across the deployment.
+	 *
+	 * @param id the identifier, non-empty for {@link #validate()} to pass
+	 * @return this profile
+	 */
 	public GpuProfile setId(String id) {
 		this.id = id;
 		return this;
 	}
 
+	/**
+	 * Returns the free-text device family, which only labels the device in the artifacts and
+	 * never enters a timing or memory computation.
+	 *
+	 * @return the family label, for instance {@code datacenter-accelerator}
+	 */
 	public String getDeviceType() {
 		return deviceType;
 	}
 
+	/**
+	 * Sets the free-text device family shown in the artifacts.
+	 *
+	 * @param deviceType the family label, for instance {@code datacenter-accelerator}
+	 * @return this profile
+	 */
 	public GpuProfile setDeviceType(String deviceType) {
 		this.deviceType = deviceType;
 		return this;
 	}
 
+	/**
+	 * Returns the total high-bandwidth memory of the device, in bytes.
+	 * <p>
+	 * This is the raw capacity as the vendor states it (the configuration expresses it in GiB);
+	 * {@link #usableMemoryBytes()} applies the reservation of the runtime afterwards.
+	 *
+	 * @return total capacity in bytes, positive
+	 */
 	public double getMemoryBytes() {
 		return memoryBytes;
 	}
 
+	/**
+	 * Sets the total high-bandwidth memory of the device, before any reservation is taken.
+	 *
+	 * @param memoryBytes capacity in bytes, positive
+	 * @return this profile
+	 */
 	public GpuProfile setMemoryBytes(double memoryBytes) {
 		this.memoryBytes = memoryBytes;
 		return this;
 	}
 
+	/**
+	 * Returns the share of the device memory that the runtime and the allocator keep for
+	 * themselves, so the simulator never sizes a workload against the full capacity.
+	 * <p>
+	 * The default of {@code 0.05} leaves ninety-five percent of the memory available to the
+	 * weights, the activations and the key-value cache.
+	 *
+	 * @return the reserved fraction, in {@code [0, 1)}
+	 */
 	public double getUnusableMemoryFraction() {
 		return unusableMemoryFraction;
 	}
 
+	/**
+	 * Sets the share of the device memory that the runtime and the allocator keep for themselves.
+	 *
+	 * @param unusableMemoryFraction the reserved fraction, in {@code [0, 1)}
+	 * @return this profile
+	 */
 	public GpuProfile setUnusableMemoryFraction(double unusableMemoryFraction) {
 		this.unusableMemoryFraction = unusableMemoryFraction;
 		return this;
 	}
 
+	/**
+	 * Returns the memory bandwidth the roofline estimate divides by, in bytes per second.
+	 * <p>
+	 * The configuration expresses this figure in decimal GB/s, which the loader converts to bytes.
+	 * Decode steps that cannot reach their arithmetic intensity are limited by this value.
+	 *
+	 * @return bandwidth in bytes per second, positive
+	 */
 	public double getMemoryBandwidthBytesPerSecond() {
 		return memoryBandwidthBytesPerSecond;
 	}
 
+	/**
+	 * Sets the memory bandwidth used by the roofline estimate.
+	 *
+	 * @param memoryBandwidthBytesPerSecond bandwidth in bytes per second, positive (GB/s times
+	 *                                      {@code 1e9})
+	 * @return this profile
+	 */
 	public GpuProfile setMemoryBandwidthBytesPerSecond(double memoryBandwidthBytesPerSecond) {
 		this.memoryBandwidthBytesPerSecond = memoryBandwidthBytesPerSecond;
 		return this;
 	}
 
+	/**
+	 * Returns the throughput the execution model divides by, per precision, in Tera floating-point
+	 * operations per second.
+	 * <p>
+	 * These are achievable figures, not the published peaks: using a peak here would understate
+	 * every service time. The map is keyed by lower-case precision name, such as {@code fp16}.
+	 *
+	 * @return an unmodifiable map from precision to achievable TFLOPS
+	 */
 	public Map<String, Double> getAchievedTeraFlopsByPrecision() {
 		return Collections.unmodifiableMap(achievedTeraFlopsByPrecision);
 	}
 
+	/**
+	 * Returns the published peak throughput per precision, in Tera floating-point operations per
+	 * second, reported next to the achieved figures so a reader can see the gap.
+	 * <p>
+	 * The execution model never reads these values, and the map is empty unless peaks were
+	 * declared.
+	 *
+	 * @return an unmodifiable map from precision to peak TFLOPS
+	 */
 	public Map<String, Double> getPeakTeraFlopsByPrecision() {
 		return Collections.unmodifiableMap(peakTeraFlopsByPrecision);
 	}
 
+	/**
+	 * Returns the power the device draws while it holds no work, in watts.
+	 *
+	 * @return idle power in watts, zero when power is not modelled
+	 */
 	public double getIdlePowerWatts() {
 		return idlePowerWatts;
 	}
 
+	/**
+	 * Sets the power the device draws while it holds no work.
+	 *
+	 * @param idlePowerWatts idle power in watts, zero or more and not above the active power
+	 * @return this profile
+	 */
 	public GpuProfile setIdlePowerWatts(double idlePowerWatts) {
 		this.idlePowerWatts = idlePowerWatts;
 		return this;
 	}
 
+	/**
+	 * Returns the power the device draws while it executes a batch, in watts.
+	 *
+	 * @return active power in watts, zero when power is not modelled
+	 */
 	public double getActivePowerWatts() {
 		return activePowerWatts;
 	}
 
+	/**
+	 * Sets the power the device draws while it executes a batch.
+	 *
+	 * @param activePowerWatts active power in watts, zero or more and not below the idle power
+	 * @return this profile
+	 */
 	public GpuProfile setActivePowerWatts(double activePowerWatts) {
 		this.activePowerWatts = activePowerWatts;
 		return this;
 	}
 
+	/**
+	 * Returns the time the runtime spends launching the kernels of one decode iteration, in
+	 * seconds, which is added to every step regardless of the batch size.
+	 * <p>
+	 * The configuration expresses this figure in milliseconds. The overhead is what makes a batch
+	 * of a few sequences pay for the whole device.
+	 *
+	 * @return launch overhead in seconds, zero when it is not modelled
+	 */
 	public double getKernelLaunchOverheadSeconds() {
 		return kernelLaunchOverheadSeconds;
 	}
 
+	/**
+	 * Sets the time the runtime spends launching the kernels of one decode iteration.
+	 *
+	 * @param kernelLaunchOverheadSeconds overhead in seconds, zero or more (milliseconds divided
+	 *                                    by {@code 1e3})
+	 * @return this profile
+	 */
 	public GpuProfile setKernelLaunchOverheadSeconds(double kernelLaunchOverheadSeconds) {
 		this.kernelLaunchOverheadSeconds = kernelLaunchOverheadSeconds;
 		return this;
 	}
 
+	/**
+	 * Returns the bandwidth of the host to device copy that brings a request onto the device, in
+	 * bytes per second, or zero when the copy is not charged to the request.
+	 *
+	 * @return copy bandwidth in bytes per second, zero to ignore the transfer
+	 */
 	public double getHostToDeviceBandwidthBytesPerSecond() {
 		return hostToDeviceBandwidthBytesPerSecond;
 	}
 
+	/**
+	 * Sets the bandwidth of the host to device copy that brings a request onto the device.
+	 *
+	 * @param hostToDeviceBandwidthBytesPerSecond copy bandwidth in bytes per second, zero to leave
+	 *                                            the transfer out of the latency
+	 * @return this profile
+	 */
 	public GpuProfile setHostToDeviceBandwidthBytesPerSecond(double hostToDeviceBandwidthBytesPerSecond) {
 		this.hostToDeviceBandwidthBytesPerSecond = hostToDeviceBandwidthBytesPerSecond;
 		return this;
 	}
 
+	/**
+	 * Returns the fixed latency added by each host to device copy, in seconds, charged on top of
+	 * the time the copied bytes take at the transfer bandwidth.
+	 * <p>
+	 * The configuration expresses this figure in milliseconds.
+	 *
+	 * @return transfer latency in seconds, zero when it is not modelled
+	 */
 	public double getHostTransferLatencySeconds() {
 		return hostTransferLatencySeconds;
 	}
 
+	/**
+	 * Sets the fixed latency added by each host to device copy.
+	 *
+	 * @param hostTransferLatencySeconds latency in seconds, zero or more (milliseconds divided
+	 *                                   by {@code 1e3})
+	 * @return this profile
+	 */
 	public GpuProfile setHostTransferLatencySeconds(double hostTransferLatencySeconds) {
 		this.hostTransferLatencySeconds = hostTransferLatencySeconds;
 		return this;
 	}
 
+	/**
+	 * Returns where the numbers of this profile come from, so a report can separate measured
+	 * figures from assumed ones.
+	 *
+	 * @return the provenance tag, synthetic unless the configuration says otherwise
+	 */
 	public Provenance getProvenance() {
 		return provenance;
 	}
 
+	/**
+	 * Sets where the numbers of this profile come from.
+	 *
+	 * @param provenance the provenance tag
+	 * @return this profile
+	 */
 	public GpuProfile setProvenance(Provenance provenance) {
 		this.provenance = provenance;
 		return this;
 	}
 
+	/**
+	 * Returns the free-text note that records the assumptions behind the values, which is carried
+	 * into the artifacts unchanged.
+	 *
+	 * @return the note, empty when none was written
+	 */
 	public String getNote() {
 		return note;
 	}
 
+	/**
+	 * Sets the free-text note that records the assumptions behind the values.
+	 *
+	 * @param note the note, empty when there is nothing to explain
+	 * @return this profile
+	 */
 	public GpuProfile setNote(String note) {
 		this.note = note;
 		return this;
 	}
 
+	/**
+	 * Returns a one-line summary with the identifier, the capacity in decimal GB and the
+	 * precisions the device declares.
+	 *
+	 * @return the summary line
+	 */
 	@Override
 	public String toString() {
 		return "GpuProfile[" + id + ", " + (memoryBytes / 1e9) + " GB, " + declaredPrecisions() + "]";

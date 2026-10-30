@@ -340,6 +340,12 @@ public class WorkloadSource extends SimEntity implements OnSimulationStartListen
 		return plan;
 	}
 
+	/**
+	 * Returns a one-line summary of the releases made so far, naming the arrival pattern and the
+	 * number of requests the source has generated.
+	 *
+	 * @return the pattern and the generated request count
+	 */
 	@Override
 	public String toString() {
 		return "WorkloadSource[" + plan.getPattern() + ", generated=" + generatedRequests + "]";

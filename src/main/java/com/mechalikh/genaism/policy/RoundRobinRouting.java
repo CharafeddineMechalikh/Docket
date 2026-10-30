@@ -51,6 +51,9 @@ public class RoundRobinRouting implements RoutingPolicy {
 		return candidates.get(index).replicaId();
 	}
 
+	/**
+	 * Resets the cursor, so the next routed request starts again at the first candidate.
+	 */
 	@Override
 	public void reset() {
 		routedRequests = 0;
@@ -65,6 +68,11 @@ public class RoundRobinRouting implements RoutingPolicy {
 		return routedRequests;
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code round-robin}
+	 */
 	@Override
 	public String name() {
 		return "round-robin";

@@ -45,11 +45,22 @@ public class ShortestOracleFirst implements SchedulingPolicy {
 				.thenComparingLong(InferenceRequest::getRequestId);
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code shortest-oracle-first}
+	 */
 	@Override
 	public String name() {
 		return "shortest-oracle-first";
 	}
 
+	/**
+	 * The order uses the output length the workload drew, which no serving engine knows before
+	 * the generation runs.
+	 *
+	 * @return always {@code true}
+	 */
 	@Override
 	public boolean usesOracleInformation() {
 		return true;

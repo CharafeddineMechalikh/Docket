@@ -379,6 +379,12 @@ public class RequestRecorder {
 		return out.toString();
 	}
 
+	/**
+	 * Returns a one-line summary of the rows and samples collected so far, so that a log line after
+	 * the event flow shows what the artifacts will hold.
+	 *
+	 * @return the recorded request and sample counts
+	 */
 	@Override
 	public String toString() {
 		return "RequestRecorder[" + requests.size() + " requests, " + samples.size() + " samples]";

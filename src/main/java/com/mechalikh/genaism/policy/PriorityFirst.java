@@ -43,11 +43,21 @@ public class PriorityFirst implements SchedulingPolicy {
 				.thenComparingLong(InferenceRequest::getRequestId);
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code priority}
+	 */
 	@Override
 	public String name() {
 		return "priority";
 	}
 
+	/**
+	 * Priorities are stated by the workload, so the order uses no oracle information.
+	 *
+	 * @return always {@code false}
+	 */
 	@Override
 	public boolean usesOracleInformation() {
 		return false;

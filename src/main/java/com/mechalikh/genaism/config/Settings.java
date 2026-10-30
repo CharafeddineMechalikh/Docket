@@ -423,6 +423,12 @@ public class Settings {
 		return values.size();
 	}
 
+	/**
+	 * Returns a one-line summary naming how many keys the settings hold and how many were read, so
+	 * that an overlooked key is visible before the artifacts are written.
+	 *
+	 * @return the key counts
+	 */
 	@Override
 	public String toString() {
 		return "Settings[" + values.size() + " keys, " + readKeys.size() + " read]";

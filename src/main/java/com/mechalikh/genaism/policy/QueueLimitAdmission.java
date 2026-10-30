@@ -57,11 +57,21 @@ public class QueueLimitAdmission implements AdmissionPolicy {
 				: AdmissionDecision.admit();
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code queue-limit}
+	 */
 	@Override
 	public String name() {
 		return "queue-limit";
 	}
 
+	/**
+	 * Returns the description, naming the largest accepted backlog.
+	 *
+	 * @return a one-line description
+	 */
 	@Override
 	public String describe() {
 		return name() + "(max waiting " + maxWaitingRequests + ")";

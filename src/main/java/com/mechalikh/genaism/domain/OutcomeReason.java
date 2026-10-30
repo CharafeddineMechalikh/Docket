@@ -80,6 +80,12 @@ public enum OutcomeReason {
 		return this == SUCCESS;
 	}
 
+	/**
+	 * Returns the label recorded in the artifacts for this outcome, so that a reader can classify a
+	 * rejection without mapping the enumeration constant by hand.
+	 *
+	 * @return the reason code
+	 */
 	@Override
 	public String toString() {
 		return label;

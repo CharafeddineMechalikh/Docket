@@ -3,12 +3,13 @@
 #
 # Usage: scripts/run_sweeps.sh [output root]
 #
-# The default output root is target/sweep. Each configuration writes to
-# <root>/<name>/repNN, which is the layout scripts/plot_sweeps.py reads.
+# The default output root is target/sweep. The simulator appends the experiment name to
+# the output directory, so a configuration writes <root>/<name>/<name>/summary.csv with
+# repNN beside it, which is the layout scripts/plot_sweeps.py reads.
 set -u
 cd "$(dirname "$0")/.."
 OUT=${1:-target/sweep}
-JAR=target/genai-inference-sim-0.1.0.jar
+JAR=target/genai-inference-sim-1.0.0.jar
 LOADED=scenarios/loaded-7b-memory-pressure.properties
 LIGHT=scenarios/single-gpu-poisson.properties
 fail=0

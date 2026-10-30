@@ -72,14 +72,41 @@ public final class DecodeBatch {
 		return new DecodeBatch(sequences, (long) sequences * contextEach, contextEach);
 	}
 
+	/**
+	 * Returns the number of sequences that generate a token in this step.
+	 * <p>
+	 * This is the batch width of the iteration: every sequence contributes one token and therefore
+	 * one cache write, which is why the batch size drives the projection term of the decode cost.
+	 *
+	 * @return sequences in the batch, at least one
+	 */
 	public int sequences() {
 		return sequences;
 	}
 
+	/**
+	 * Returns the sum of the context lengths of the sequences in this step.
+	 * <p>
+	 * Attention reads the whole key-value cache of the batch, so this total is what the memory
+	 * term of a decode step charges, and it is what makes decode turn memory-bound as the
+	 * contexts grow.
+	 *
+	 * @return the total cached tokens, at least {@link #sequences()}
+	 */
 	public long totalContextTokens() {
 		return totalContextTokens;
 	}
 
+	/**
+	 * Returns the context length of the longest sequence in this step.
+	 * <p>
+	 * A step finishes only when its slowest sequence finishes, so this figure bounds the latency
+	 * of the iteration even though the arithmetic is charged on the total: a batch that carries
+	 * one long conversation pays for that conversation in the step that advances it.
+	 *
+	 * @return the largest context in tokens, at least one and at most
+	 *         {@link #totalContextTokens()}
+	 */
 	public int maxContextTokens() {
 		return maxContextTokens;
 	}
@@ -93,6 +120,11 @@ public final class DecodeBatch {
 		return (double) totalContextTokens / sequences;
 	}
 
+	/**
+	 * Returns a one-line description of the batch.
+	 *
+	 * @return the batch size, the total cached tokens and the largest context
+	 */
 	@Override
 	public String toString() {
 		return "DecodeBatch[" + sequences + " sequences, " + totalContextTokens + " cached tokens, max "

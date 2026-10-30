@@ -40,11 +40,22 @@ public class FirstComeFirstServed implements SchedulingPolicy {
 				.thenComparingLong(InferenceRequest::getRequestId);
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code fcfs}
+	 */
 	@Override
 	public String name() {
 		return "fcfs";
 	}
 
+	/**
+	 * Arrival times and identifiers are known to any gateway, so the order needs no information
+	 * from the workload.
+	 *
+	 * @return always {@code false}
+	 */
 	@Override
 	public boolean usesOracleInformation() {
 		return false;

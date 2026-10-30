@@ -41,6 +41,11 @@ public class UnlimitedAdmission implements AdmissionPolicy {
 		return AdmissionDecision.admit();
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code unlimited}
+	 */
 	@Override
 	public String name() {
 		return "unlimited";

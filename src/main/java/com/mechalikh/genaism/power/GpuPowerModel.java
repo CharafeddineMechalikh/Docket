@@ -235,6 +235,12 @@ public class GpuPowerModel {
 					+ " s");
 	}
 
+	/**
+	 * Returns a one-line summary of the device power levels and of the energy integrated so far,
+	 * with the energy expressed in joules.
+	 *
+	 * @return the device, both power levels and the total energy in joules
+	 */
 	@Override
 	public String toString() {
 		return "GpuPowerModel[" + deviceId + ", " + activeWatts + " W active / " + idleWatts + " W idle, "

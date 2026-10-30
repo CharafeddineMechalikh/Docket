@@ -54,6 +54,11 @@ public class LeastPredictedWorkRouting implements RoutingPolicy {
 		return best;
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code least-predicted-work}
+	 */
 	@Override
 	public String name() {
 		return "least-predicted-work";

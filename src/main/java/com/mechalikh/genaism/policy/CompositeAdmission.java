@@ -70,11 +70,21 @@ public class CompositeAdmission implements AdmissionPolicy {
 		return AdmissionDecision.admit();
 	}
 
+	/**
+	 * Returns the names of the composed rules in evaluation order.
+	 *
+	 * @return the policy name
+	 */
 	@Override
 	public String name() {
 		return "composite(" + policies.stream().map(AdmissionPolicy::name).collect(Collectors.joining(", ")) + ")";
 	}
 
+	/**
+	 * Returns the descriptions of the composed rules joined with "and then".
+	 *
+	 * @return a one-line description
+	 */
 	@Override
 	public String describe() {
 		return policies.stream().map(AdmissionPolicy::describe).collect(Collectors.joining(" and then "));

@@ -737,26 +737,61 @@ public class ReplicaServer extends SimEntity {
 					+ pool.getTotalBlocks());
 	}
 
+	/**
+	 * Returns the cache pool that holds the block reservations of the sequences, the structure that
+	 * decides, at each decode iteration, which running sequence has room for one more token.
+	 *
+	 * @return the pool, never {@code null}
+	 */
 	public KvCachePool getPool() {
 		return pool;
 	}
 
+	/**
+	 * Returns the memory budget of the device, from which the size of the cache pool is derived
+	 * once, when the replica is built.
+	 *
+	 * @return the memory manager, never {@code null}
+	 */
 	public GpuMemoryManager getMemory() {
 		return memory;
 	}
 
+	/**
+	 * Returns the energy integrator of the device, the one that receives an active interval for
+	 * every charged step and an idle interval for every gap between two steps.
+	 *
+	 * @return the power model, never {@code null}
+	 */
 	public GpuPowerModel getPower() {
 		return power;
 	}
 
+	/**
+	 * Returns the model profile every step of this replica is priced against.
+	 *
+	 * @return the model, never {@code null}
+	 */
 	public ModelProfile getModel() {
 		return model;
 	}
 
+	/**
+	 * Returns the device profile every step of this replica is priced against, the source of the
+	 * idle power used when the serving loop has nothing to schedule.
+	 *
+	 * @return the device, never {@code null}
+	 */
 	public GpuProfile getDevice() {
 		return device;
 	}
 
+	/**
+	 * Returns the deployment limits of the replica: the batch cap, the prefill chunk shape, the
+	 * context window and the preemption order the serving loop reads.
+	 *
+	 * @return the specification, never {@code null}
+	 */
 	public ReplicaSpec getSpec() {
 		return spec;
 	}
@@ -788,30 +823,72 @@ public class ReplicaServer extends SimEntity {
 		return decodeIterations == 0 ? 0 : (double) batchSizeSum / decodeIterations;
 	}
 
+	/**
+	 * Returns how many prefill chunks the replica scheduled since the start of the run, one per
+	 * charged step that read a chunk of a prompt, residual chunks included.
+	 *
+	 * @return prefill steps, a plain count
+	 */
 	public long getPrefillSteps() {
 		return prefillSteps;
 	}
 
+	/**
+	 * Returns how many decode iterations the replica started since the start of the run, which is
+	 * the denominator of {@link #meanBatchSize()} and of the mean iteration cost.
+	 *
+	 * @return decode iterations, a plain count
+	 */
 	public long getDecodeIterations() {
 		return decodeIterations;
 	}
 
+	/**
+	 * Returns the largest number of sequences that shared one decode iteration, against the batch
+	 * cap of the specification.
+	 *
+	 * @return sequences in the widest iteration, zero when no iteration ran
+	 */
 	public int getPeakBatchSize() {
 		return peakBatchSize;
 	}
 
+	/**
+	 * Returns how many running sequences were suspended to free cache, each suspension costing a
+	 * re-prefill of the prompt and of every token already produced.
+	 *
+	 * @return preemption events, a plain count
+	 */
 	public long getPreemptions() {
 		return preemptions;
 	}
 
+	/**
+	 * Returns how often the pool refused a reservation, whether for a prefill chunk or for the next
+	 * token of a running sequence, so this counter moves without a suspension.
+	 *
+	 * @return refused reservations, a plain count
+	 */
 	public long getCacheRefusals() {
 		return cacheRefusals;
 	}
 
+	/**
+	 * Returns how often the serving loop ended without scheduling a step while the replica still
+	 * held requests, and charged the gap to the device as idle time.
+	 *
+	 * @return stalled decisions, a plain count
+	 */
 	public long getStalledSteps() {
 		return stalledSteps;
 	}
 
+	/**
+	 * Returns one line for logs and test failures, with the identifier, the model, the device and
+	 * the queue, running and block counts at the instant of the call.
+	 *
+	 * @return the summary line
+	 */
 	@Override
 	public String toString() {
 		return String.format(Locale.ROOT,

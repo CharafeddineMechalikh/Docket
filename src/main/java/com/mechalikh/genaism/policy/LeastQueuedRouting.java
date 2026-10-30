@@ -53,6 +53,11 @@ public class LeastQueuedRouting implements RoutingPolicy {
 		return best;
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code least-queued}
+	 */
 	@Override
 	public String name() {
 		return "least-queued";

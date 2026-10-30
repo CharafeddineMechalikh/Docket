@@ -85,38 +85,108 @@ public final class ResourceSample {
 		this.executing = executing;
 	}
 
+	/**
+	 * Returns the instant of the snapshot on the simulation clock, in seconds.
+	 * <p>
+	 * The samples of a replica are evenly spaced by the sampling interval, so the mean of their
+	 * times is the mid-point of the interval the series covers.
+	 *
+	 * @return simulation seconds since the start of the run
+	 */
 	public double time() {
 		return time;
 	}
 
+	/**
+	 * Returns the replica the snapshot was taken on.
+	 * <p>
+	 * Samples are grouped by this identifier before any mean is taken, so the series of one
+	 * replica never mixes the occupancy of two devices.
+	 *
+	 * @return the engine identifier of the replica
+	 */
 	public int replicaId() {
 		return replicaId;
 	}
 
+	/**
+	 * Returns how many sequences were generating tokens at the instant of the snapshot.
+	 * <p>
+	 * The mean over the samples of a replica is the average batch size, in sequences.
+	 *
+	 * @return sequences decoding, zero or more
+	 */
 	public int runningSequences() {
 		return runningSequences;
 	}
 
+	/**
+	 * Returns how many requests were queued for their prefill at the instant of the snapshot.
+	 * <p>
+	 * The mean over the samples of a replica is the average queue length, in requests.
+	 *
+	 * @return requests waiting, zero or more
+	 */
 	public int waitingRequests() {
 		return waitingRequests;
 	}
 
+	/**
+	 * Returns how many cache blocks were handed out at the instant of the snapshot.
+	 * <p>
+	 * The mean over the samples of a replica is the average block usage, in blocks, and the
+	 * maximum is the peak occupancy the series records.
+	 *
+	 * @return blocks in use, between zero and {@link #totalBlocks()}
+	 */
 	public int usedBlocks() {
 		return usedBlocks;
 	}
 
+	/**
+	 * Returns how many cache blocks the replica holds in total.
+	 * <p>
+	 * The capacity is fixed for the whole run, so the mean over the samples is that constant.
+	 *
+	 * @return blocks of the cache, at least one
+	 */
 	public int totalBlocks() {
 		return totalBlocks;
 	}
 
+	/**
+	 * Returns how many tokens the live reservations could hold at the instant of the snapshot.
+	 * <p>
+	 * The mean over the samples of a replica is the average token footprint of the requests it
+	 * held, in tokens.
+	 *
+	 * @return reserved tokens, zero or more
+	 */
 	public int reservedTokens() {
 		return reservedTokens;
 	}
 
+	/**
+	 * Returns the energy charged to the replica up to the instant of the snapshot.
+	 * <p>
+	 * The value is cumulative, in joules, so the series rises with the clock and is not averaged
+	 * across the samples: the difference between two samples is the energy of the interval
+	 * between them, and the last sample of a run is the total of that replica.
+	 *
+	 * @return energy consumed so far, in joules
+	 */
 	public double energyJoule() {
 		return energyJoule;
 	}
 
+	/**
+	 * Tells whether the device was executing rather than idle at the instant of the snapshot.
+	 * <p>
+	 * The share of the samples that return {@code true} is the duty cycle of the replica over
+	 * the run, a fraction in [0,1].
+	 *
+	 * @return {@code true} when the device was executing
+	 */
 	public boolean isExecuting() {
 		return executing;
 	}
@@ -130,6 +200,12 @@ public final class ResourceSample {
 		return (double) usedBlocks / totalBlocks;
 	}
 
+	/**
+	 * Returns a one-line summary with the instant, the replica, the queue and batch sizes, the
+	 * block usage and the energy.
+	 *
+	 * @return the summary line
+	 */
 	@Override
 	public String toString() {
 		return "ResourceSample[t=" + time + ", replica=" + replicaId + ", running=" + runningSequences + ", waiting="

@@ -72,11 +72,21 @@ public class PredictedDeadlineAdmission implements AdmissionPolicy {
 				: AdmissionDecision.admit();
 	}
 
+	/**
+	 * Returns the policy name written in the artifacts.
+	 *
+	 * @return {@code predicted-deadline}
+	 */
 	@Override
 	public String name() {
 		return "predicted-deadline";
 	}
 
+	/**
+	 * Returns the description, naming the tolerance applied to the slack.
+	 *
+	 * @return a one-line description
+	 */
 	@Override
 	public String describe() {
 		return name() + "(tolerance " + tolerance + ")";
