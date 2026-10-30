@@ -941,21 +941,90 @@ sum correctly fails the build.
 
 ## Roadmap
 
-Ordered by what would most improve the evidence, not by effort:
+`[x]` shipped in 1.0.1, `[ ]` not started. Ordered by what would most improve the evidence, not by
+effort.
 
-1. Calibrate the roofline coefficients against one serving engine on one device, and label the
-   result `measured`. The trace replays already fix the traffic; this fixes the speed.
-2. Replay more than 600 rows, and add a workload whose trace states SLO targets, so goodput is
-   measured rather than reported as not applicable.
-3. Multi-GPU and multi-node topologies, with tensor and pipeline parallelism.
-4. Disaggregated prefill and decode on separate pools.
-5. Prefix caching across requests, so a shared prompt prefix is not recomputed and the session
-   identifiers recorded by the Qwen and Mooncake traces can be routed.
-6. An HTTP or gRPC front end, so the simulator can sit behind a load generator.
+### Stage 1, shipped
 
-Calibration changes what the numbers mean; the rest extends what can be simulated. Until it is
-done, every result in this repository, including the trace replays, is a statement about the
-simulator, not about a deployment.
+- [x] A roofline cost model for prefill and decode, analytical and uncalibrated.
+- [x] Several replicas of one device type, with routing across them.
+- [x] Continuous batching with a sequence ceiling and a per-step token ceiling.
+- [x] Chunked prefill, so a long prompt interleaves with running decodes.
+- [x] A paged KV cache with whole-block round-up, admission guards and preemption by recompute.
+- [x] Per-request latency metrics, plus per-service-class SLO attainment and goodput.
+- [x] Energy from a two-level power model, integrated over simulated time.
+- [x] Five arrival patterns, sixteen length distributions, and CSV trace replay.
+- [x] Four public serving traces replayed under [examples/real-traces](examples/real-traces/README.md).
+- [x] Nine worked policy examples, each with its own tests and measured result.
+- [x] A strict properties loader, a CLI with exit codes, and CSV, JSONL and console artifacts.
+- [x] Reproducible repetitions and 140 tests, including an accounting invariant per run.
+
+### Where the project stands
+
+Stage 1 answers one question about one device: what happens, in seconds, when arrivals,
+batching, the KV pool and preemption meet at these limits. It does that without a GPU and with a
+deterministic answer a reviewer can reproduce. Two boundaries hold it in place.
+
+The numbers describe mechanisms, not hardware. The arrival process comes from real traces, but
+the latency, throughput and energy per token come from coefficients chosen by hand. Until the
+first item below is done, no result here, including the trace replays, is a statement about a
+deployment.
+
+The engine underneath is used narrowly. Of PureEdgeSim 6.0, Docket imports only
+`simulationengine` (the clock, the event queue and `SimEntity`) and `distribution` (the seeded
+samplers). The scenario layer, the datacenter and network models, the task orchestrator and the
+energy models are not used: Docket has its own strict settings loader, its own power model and its
+own request lifecycle, because a serving replica batching tokens step by step is not a task graph.
+Multi-device work is the point at which that choice is worth revisiting, and that is deliberate
+about where the cost lands.
+
+One loose end belongs to the same question. `device.hostToDeviceBandwidthGBs` and
+`device.hostTransferLatencyMs` are parsed and validated but read by nothing, so a per-hop transfer
+term is declared in the settings file and absent from the model.
+
+### Next, evidence first
+
+- [ ] Calibrate the roofline and power coefficients against one serving engine on one device, and
+      label the result `measured` so the provenance lattice flips for the whole run.
+- [ ] Replay more than 600 rows per trace, and add a trace that states SLO targets, so goodput is
+      measured rather than reported as not applicable.
+- [ ] Either consume `device.hostToDeviceBandwidthGBs` and `device.hostTransferLatencyMs` as a
+      transfer term the moment a second device exists, or delete them from the loader and the
+      settings documentation. Dead configuration is worse than absent configuration.
+
+### Later, scope
+
+- [ ] Multi-device placement: one replica per device or per node, with the link model carrying the
+      inter-node hop, and energy accounted per device rather than per type.
+- [ ] Pipeline parallelism as a new entity: a pipeline group that owns an ordered list of stages,
+      moves a request stage by stage, and accounts the bubbles. This breaks the one-step-at-a-time
+      invariant of `ReplicaServer`, so it is a new component, not a flag.
+- [ ] Disaggregated prefill and decode on separate pools, with the KV transfer between them using
+      the link term above.
+- [ ] Prefix caching across requests, so a shared prompt prefix is not recomputed and the session
+      identifiers in the Qwen and Mooncake traces can be routed.
+- [ ] An HTTP or gRPC front end, so the simulator can sit behind a load generator.
+
+### The research question
+
+- [ ] Partition a model across constrained devices, or replicate it whole on each? With the link,
+      power and SLO constraints in place, that question has a measurable answer per topology, and
+      the answer is not obvious: partitioning adds hops and serialisation but spreads the memory
+      footprint and the power draw, and the crossover depends on the trace.
+
+This is the item that motivates the rest. It is also the crowded one: LLMServingSim already
+models disaggregated serving, BLIS offers a fast deterministic alternative, and edge layer
+placement has been studied in isolation. What is missing is a comparison of the two strategies
+under one energy and latency budget, and any result Docket reports on it should be cross-checked
+against an independent simulator before it is believed.
+
+### Out of scope
+
+- Real hardware timings taken inside the event loop. Calibration is a coefficient fit, not a
+  measurement during the run.
+- Training, fine-tuning or any workload that is not served inference.
+- A GUI, a database, or distributed execution of the simulator itself.
+- Fairness guarantees beyond the service classes already modelled.
 
 ## License and citation
 
