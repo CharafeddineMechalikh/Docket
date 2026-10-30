@@ -18,11 +18,14 @@
  **/
 package com.mechalikh.docket.engine;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import com.mechalikh.docket.domain.TraceRecord;
 import com.mechalikh.pureedgesim.distribution.Distribution;
@@ -225,6 +228,8 @@ public class WorkloadPlan {
 	protected double tpotTargetSeconds = 0;
 	/** Client abandonment delay applied to every generated request, in seconds from its arrival. */
 	protected double cancellationDelaySeconds = 0;
+	/** Objectives stated per service class, overriding the fields above for the classes they name. */
+	protected Map<String, ClassTarget> classTargets = Collections.emptyMap();
 	/** Recorded rows, required by {@link Pattern#TRACE}. */
 	protected List<TraceRecord> trace = Collections.emptyList();
 	/** Name of the prompt-length distribution, kept so a run can rebuild its sampler. */
@@ -294,6 +299,39 @@ public class WorkloadPlan {
 		require(outputJitterTokens >= 0, "the output jitter cannot be negative, found " + outputJitterTokens);
 		require(ttftTargetSeconds >= 0 && endToEndTargetSeconds >= 0 && tpotTargetSeconds >= 0
 				&& cancellationDelaySeconds >= 0, "targets and cancellation delays cannot be negative");
+		for (String serviceClass : classTargets.keySet())
+			if (pattern == Pattern.TRACE)
+				require(hasTraceClass(serviceClass), "the targets declared for service class \"" + serviceClass
+						+ "\" apply to no row of the trace; recorded classes are " + traceClasses());
+			else
+				require(serviceClass.equals(this.serviceClass), "the targets declared for service class \""
+						+ serviceClass + "\" apply to no generated request, which is of class \""
+						+ this.serviceClass + "\"");
+	}
+
+	/**
+	 * Reports whether any recorded row belongs to a service class.
+	 *
+	 * @param serviceClass the class name
+	 * @return {@code true} when at least one row carries it
+	 */
+	protected boolean hasTraceClass(String serviceClass) {
+		for (TraceRecord row : trace)
+			if (serviceClass.equals(row.serviceClass()))
+				return true;
+		return false;
+	}
+
+	/**
+	 * Lists the service classes the recorded rows carry, for an error message.
+	 *
+	 * @return the distinct class names, in the order they first appear
+	 */
+	protected List<String> traceClasses() {
+		Set<String> classes = new LinkedHashSet<>();
+		for (TraceRecord row : trace)
+			classes.add(row.serviceClass());
+		return new ArrayList<>(classes);
 	}
 
 	/**
@@ -360,7 +398,40 @@ public class WorkloadPlan {
 		else
 			out.append(outputLength == null ? "trace" : outputLength.getName());
 		out.append("; prediction=").append(prediction.label);
+		out.append("; targets=").append(targetSummary());
 		return out.toString();
+	}
+
+	/**
+	 * Describes the objectives of the workload, global and per class, so the artifact states them.
+	 *
+	 * @return a one-line summary, {@code "none"} when no request states an objective
+	 */
+	protected String targetSummary() {
+		StringBuilder out = new StringBuilder();
+		if (ttftTargetSeconds > 0 || endToEndTargetSeconds > 0 || tpotTargetSeconds > 0)
+			out.append(String.format(Locale.ROOT, "ttft %s s, e2e %s s, tpot %s s", seconds(ttftTargetSeconds, "none"),
+					seconds(endToEndTargetSeconds, "none"), seconds(tpotTargetSeconds, "none")));
+		for (Map.Entry<String, ClassTarget> entry : classTargets.entrySet()) {
+			ClassTarget target = entry.getValue();
+			if (out.length() > 0)
+				out.append("; ");
+			out.append(entry.getKey()).append(": ").append(String.format(Locale.ROOT, "ttft %s, e2e %s, tpot %s",
+					seconds(target.ttftSeconds, "global"), seconds(target.endToEndSeconds, "global"),
+					seconds(target.tpotSeconds, "global")));
+		}
+		return out.length() == 0 ? "none" : out.toString();
+	}
+
+	/**
+	 * Formats a duration for a description, with a word standing for zero.
+	 *
+	 * @param value   the duration in seconds
+	 * @param zero    what a zero means in this position
+	 * @return the formatted value
+	 */
+	protected static String seconds(double value, String zero) {
+		return value > 0 ? String.format(Locale.ROOT, "%.3g s", value) : zero;
 	}
 
 	/**
@@ -638,6 +709,7 @@ public class WorkloadPlan {
 		copy.endToEndTargetSeconds = endToEndTargetSeconds;
 		copy.tpotTargetSeconds = tpotTargetSeconds;
 		copy.cancellationDelaySeconds = cancellationDelaySeconds;
+		copy.classTargets = new LinkedHashMap<>(classTargets);
 		copy.trace = trace;
 		copy.inputDistributionName = inputDistributionName;
 		copy.inputDistributionAttributes = inputDistributionAttributes;
@@ -956,6 +1028,122 @@ public class WorkloadPlan {
 	public WorkloadPlan setTpotTargetSeconds(double tpotTargetSeconds) {
 		this.tpotTargetSeconds = tpotTargetSeconds;
 		return this;
+	}
+
+	/**
+	 * Declares the objectives of one service class, overriding the global ones for the fields it
+	 * states.
+	 * <p>
+	 * A class target is where an operator states what a class is promised, so the replay of a
+	 * production trace can measure goodput per class instead of leaving it not applicable. A field
+	 * left at zero falls back to the global target, which keeps a scenario that only overrides the
+	 * time to first token for one class from silently dropping its other objectives.
+	 *
+	 * @param serviceClass      the class the targets apply to, must not be empty
+	 * @param ttftSeconds       time-to-first-token target, {@code 0} to keep the global one
+	 * @param endToEndSeconds   end-to-end target, {@code 0} to keep the global one
+	 * @param tpotSeconds       per-token target, {@code 0} to keep the global one
+	 * @return this plan
+	 */
+	public WorkloadPlan setClassTarget(String serviceClass, double ttftSeconds, double endToEndSeconds,
+			double tpotSeconds) {
+		if (serviceClass == null || serviceClass.trim().isEmpty())
+			throw new IllegalArgumentException("A per-class target needs the service class it applies to");
+		if (ttftSeconds < 0 || endToEndSeconds < 0 || tpotSeconds < 0)
+			throw new IllegalArgumentException("The targets of service class \"" + serviceClass.trim()
+					+ "\" cannot be negative");
+		if (classTargets.isEmpty())
+			classTargets = new LinkedHashMap<>();
+		classTargets.put(serviceClass.trim(), new ClassTarget(ttftSeconds, endToEndSeconds, tpotSeconds));
+		return this;
+	}
+
+	/**
+	 * Returns the objectives stated per service class.
+	 *
+	 * @return the targets, keyed by class, empty when none were declared
+	 */
+	public Map<String, ClassTarget> getClassTargets() {
+		return Collections.unmodifiableMap(classTargets);
+	}
+
+	/**
+	 * Returns the time-to-first-token target that applies to one service class.
+	 *
+	 * @param serviceClass the class of the request, {@code null} for none
+	 * @return seconds from the arrival instant, {@code 0} when no target applies
+	 */
+	public double ttftTargetFor(String serviceClass) {
+		ClassTarget target = classTargets.get(serviceClass);
+		return target != null && target.ttftSeconds > 0 ? target.ttftSeconds : ttftTargetSeconds;
+	}
+
+	/**
+	 * Returns the end-to-end target that applies to one service class.
+	 *
+	 * @param serviceClass the class of the request, {@code null} for none
+	 * @return seconds from the arrival instant, {@code 0} when no target applies
+	 */
+	public double endToEndTargetFor(String serviceClass) {
+		ClassTarget target = classTargets.get(serviceClass);
+		return target != null && target.endToEndSeconds > 0 ? target.endToEndSeconds : endToEndTargetSeconds;
+	}
+
+	/**
+	 * Returns the per-token target that applies to one service class.
+	 *
+	 * @param serviceClass the class of the request, {@code null} for none
+	 * @return seconds per output token, {@code 0} when no target applies
+	 */
+	public double tpotTargetFor(String serviceClass) {
+		ClassTarget target = classTargets.get(serviceClass);
+		return target != null && target.tpotSeconds > 0 ? target.tpotSeconds : tpotTargetSeconds;
+	}
+
+	/**
+	 * The objectives stated for one service class, in seconds.
+	 */
+	public static final class ClassTarget {
+
+		/** Time-to-first-token target, {@code 0} to keep the global one. */
+		private final double ttftSeconds;
+		/** End-to-end target, {@code 0} to keep the global one. */
+		private final double endToEndSeconds;
+		/** Per-token target, {@code 0} to keep the global one. */
+		private final double tpotSeconds;
+
+		ClassTarget(double ttftSeconds, double endToEndSeconds, double tpotSeconds) {
+			this.ttftSeconds = ttftSeconds;
+			this.endToEndSeconds = endToEndSeconds;
+			this.tpotSeconds = tpotSeconds;
+		}
+
+		/**
+		 * Returns the time-to-first-token target.
+		 *
+		 * @return seconds from the arrival instant, {@code 0} to keep the global target
+		 */
+		public double getTtftSeconds() {
+			return ttftSeconds;
+		}
+
+		/**
+		 * Returns the end-to-end target.
+		 *
+		 * @return seconds from the arrival instant, {@code 0} to keep the global target
+		 */
+		public double getEndToEndSeconds() {
+			return endToEndSeconds;
+		}
+
+		/**
+		 * Returns the per-token target.
+		 *
+		 * @return seconds per output token, {@code 0} to keep the global target
+		 */
+		public double getTpotSeconds() {
+			return tpotSeconds;
+		}
 	}
 
 	/**

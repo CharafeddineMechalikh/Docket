@@ -1,9 +1,9 @@
-experiment  kimi-conversation, 600.0 s, seed 1, 1 repetition(s)
+experiment  kimi-conversation, 900.0 s, seed 1, 1 repetition(s)
 model       kimi-conversation: 7000000000 parameters, 32 layers, hidden 4096, kv 4096 scalars/token, fp16, context 131072 tokens [synthetic]
 device      gpu-80g: 80.0 GiB, 3350 GB/s, achieved [fp16] 700.0 TFLOPS [synthetic]
 deployment  32 replica(s), batch <= 64, prefill chunk 512 tokens, block 16 tokens, preemption newest-first, deadline abort off
 cost        roofline-analytical [synthetic, uncalibrated]
-workload    trace of 600 rows; lengths: input=trace, output=trace; prediction=trace-observed
+workload    trace of 2000 rows; lengths: input=trace, output=trace; prediction=trace-observed; targets=none
 policies    admission unlimited, routing least-queued, scheduling fcfs
 
 # Provenance of the weakest input: synthetic
@@ -12,11 +12,11 @@ policies    admission unlimited, routing least-queued, scheduling fcfs
 # WARNING the achieved throughput of the device is used, never its published peak
 # WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
 # WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
-# Trace: trace kimi-conversation.csv, 600 rows read, 600 replayed
-# Pooled ttft_s: n=600 mean=0.636139 p99=5.717369
-# Pooled e2e_s: n=600 mean=3.157797 p99=17.510055
-# Pooled tpot_s: n=596 mean=0.011395 p99=0.065505
-# Pooled mean_itl_s: n=596 mean=0.011395 p99=0.065505
-# Pooled queueing_s: n=600 mean=0.254372 p99=4.265528
-# Pooled prefill_s: n=600 mean=0.403798 p99=4.265528
-# Pooled decode_s: n=596 mean=1.603732 p99=6.503155
+# Trace: trace kimi-conversation.csv, 2000 rows read, 2000 replayed
+# Pooled ttft_s: n=2000 mean=0.595563 p99=5.640044
+# Pooled e2e_s: n=2000 mean=3.176356 p99=14.025833
+# Pooled tpot_s: n=1988 mean=0.011601 p99=0.065518
+# Pooled mean_itl_s: n=1988 mean=0.011601 p99=0.065518
+# Pooled queueing_s: n=2000 mean=0.219651 p99=2.796577
+# Pooled prefill_s: n=2000 mean=0.391011 p99=3.891797
+# Pooled decode_s: n=1988 mean=1.646880 p99=6.627057

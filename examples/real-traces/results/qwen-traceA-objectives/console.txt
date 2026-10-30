@@ -1,0 +1,42 @@
+Docket 1.0.1 | experiment "qwen-traceA-objectives"
+------------------------------------------------------------------------------
+simulated duration   : 1100.000 s per repetition
+repetitions          : 1, seed 1
+model                : qwen-traceA (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 1
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : trace, model qwen-traceA
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1           2000      1972   0.9860    0.0274    0.3724   25.8029   0.02861     0.8175    660.1 446153.03
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s           1972    0.0613    0.0274    0.1613    0.2287    0.3724    0.7084         n/a
+e2e_s            1972    5.7935    4.2506   12.3724   16.1987   25.8029   68.4856         n/a
+tpot_s           1972    0.0154    0.0149    0.0236    0.0262    0.0286    0.0441         n/a
+mean_itl_s       1972    0.0154    0.0149    0.0236    0.0262    0.0286    0.0441         n/a
+queueing_s       1972    0.0205    0.0063    0.0293    0.1152    0.2641    0.8300         n/a
+prefill_s        1972    0.0420    0.0170    0.1209    0.1745    0.3134    0.4880         n/a
+decode_s         1972    0.2632    0.2080    0.5252    0.6637    1.2113    3.6372         n/a
+
+mean over 1 repetition(s): completed 1972.0 +- 0.0, goodput 0.8175 +- 0.0000, tokens/s 660.1 +- 0.0, utilisation 0.547 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+image                116    1.0000    1.0000    1.0000    1.0000
+text                1428    0.9867    0.9615    0.7768    0.7521
+search               377    0.9814    0.9814    1.0000    0.9814
+file                  79    0.9494    0.9494    1.0000    0.9494
+
+replica 0 (qwen-traceA on gpu-80g): 8178 prefill steps, 48028 iterations, batch mean 15.08 peak 44, preemptions 5, cache refusals 1789, stalls 0, peak cache 100.0% of 8059 blocks, utilisation 54.7%, energy 446153.029 J
+
+Artifacts written under target\replays/qwen-traceA-objectives

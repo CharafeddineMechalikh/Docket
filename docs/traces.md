@@ -11,7 +11,7 @@ exercise: a replay changes the traffic, not the cost model.
 ## What ships in this repository
 
 Four trace files are committed under [`examples/real-traces/data/`](../examples/real-traces/data):
-600-request windows cut from the Azure LLM inference trace, the Qwen-Bailian trace, the Mooncake
+2,000-request windows cut from the Azure LLM inference trace, the Qwen-Bailian trace, the Mooncake
 conversation trace recorded on Kimi traffic, and BurstGPT. Each has a downloader, a converter, a
 paired scenario, an archived run under `examples/real-traces/results/` and a SHA-256 record in
 `manifest.json`. [The example README](../examples/real-traces/README.md) is the tour; this page is
@@ -70,6 +70,14 @@ Each defaults to what an unstressed, single-tenant request looks like.
 A target of `0` means "not stated", so the request is not counted in that objective at all. It is
 not counted as met, and not counted as missed. See [Metrics](metrics.md#service-levels-and-goodput).
 
+None of the four public traces states targets, so the scenario states them per class instead:
+`workload.ttftTargetSeconds.<class>`, `workload.endToEndTargetSeconds.<class>` and
+`workload.tpotTargetSeconds.<class>`. A row that carries no target inherits the triple of its
+service class, which is how
+[`qwen-traceA-objectives.properties`](../examples/real-traces/scenarios/qwen-traceA-objectives.properties)
+turns goodput from not applicable into a measured 0.8175. Those triples are an operator assumption,
+and the scenario says so where it states them.
+
 ## Rows must be sorted
 
 The loader keeps the file order and the plan refuses a row that arrives before its predecessor,
@@ -113,7 +121,7 @@ Two interactions with the experiment settings are worth stating:
 | Arrival instant | `arrival_time_s` x `traceTimeScale` | The engine clock, in seconds |
 | Priority | `priority` | Used by the `priority` scheduling policy |
 | Service class | `service_class` | Selects the SLO that is accounted |
-| Targets | `ttft_target_s`, `e2e_target_s`, `tpot_target_s` | Made absolute at arrival |
+| Targets | `ttft_target_s`, `e2e_target_s`, `tpot_target_s` | Made absolute at arrival; a row that states none inherits the class targets of the scenario |
 | Cancellation | `cancellation_delay_s` | Made absolute at arrival |
 | Session | `session_id` | Recorded, never used to route |
 
@@ -198,7 +206,7 @@ Four places reconcile what was read with what was run:
 4. [`verify_replays.py`](../examples/real-traces/verify_replays.py) does that join as a multiset of
    (arrival, prompt, requested output, service class), reports the largest arrival difference and
    every unmatched or extra row, and ends with `REPLAY_CHECK OK`. The four committed replays
-   reconcile with 600 rows each and a maximum difference of 0 s; the archived output is
+   reconcile with 2,000 rows each and a maximum difference of 0 s; the archived output is
    `examples/real-traces/results/replay-check.txt`.
 
 If `offered` is smaller than the rows replayed, the run ended before the trace did. If any row

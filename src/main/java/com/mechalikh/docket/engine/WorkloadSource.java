@@ -146,8 +146,9 @@ public class WorkloadSource extends SimEntity implements OnSimulationStartListen
 		request.setPredictedOutputTokens(predictedLength(output));
 		request.setPriority(plan.getPriority());
 		request.setServiceClass(plan.getServiceClass());
-		applyTargets(request, clock, plan.getTtftTargetSeconds(), plan.getEndToEndTargetSeconds(),
-				plan.getTpotTargetSeconds(), plan.getCancellationDelaySeconds());
+		applyTargets(request, clock, plan.ttftTargetFor(plan.getServiceClass()),
+				plan.endToEndTargetFor(plan.getServiceClass()), plan.tpotTargetFor(plan.getServiceClass()),
+				plan.getCancellationDelaySeconds());
 		return request;
 	}
 
@@ -168,9 +169,26 @@ public class WorkloadSource extends SimEntity implements OnSimulationStartListen
 		request.setPriority(row.priority());
 		request.setServiceClass(row.serviceClass());
 		request.setSessionId(row.sessionId());
-		applyTargets(request, clock, row.ttftTarget(), row.endToEndTarget(), row.tpotTarget(),
+		applyTargets(request, clock, statedOrPlanned(row.ttftTarget(), plan.ttftTargetFor(row.serviceClass())),
+				statedOrPlanned(row.endToEndTarget(), plan.endToEndTargetFor(row.serviceClass())),
+				statedOrPlanned(row.tpotTarget(), plan.tpotTargetFor(row.serviceClass())),
 				row.cancellationDelay());
 		return request;
+	}
+
+	/**
+	 * Returns the target a recorded row states, or the one the scenario states for its class.
+	 * <p>
+	 * A trace that carries its own objectives keeps them: the recorded value is the request's, and
+	 * the scenario cannot know better. A trace that carries none is replayed against the class
+	 * targets of the scenario, which is what turns goodput from not applicable into measured.
+	 *
+	 * @param stated  the value the row states, zero when it states none
+	 * @param planned the value the scenario states for the class of the row
+	 * @return the applicable target, zero for none
+	 */
+	protected static double statedOrPlanned(double stated, double planned) {
+		return stated > 0 ? stated : planned;
 	}
 
 	/**

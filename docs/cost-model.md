@@ -156,13 +156,17 @@ Energy is reported in joules and watt-hours in the artifacts, per request and pe
 
 `ExecutionCostModel` exposes five facts about itself:
 
-| Method | Current answer | Meaning |
+| Method | `roofline-analytical` | `roofline-calibrated` |
 |---|---|---|
-| `name()` | `roofline-analytical` | Written into every artifact row |
-| `provenance()` | `synthetic` | The model itself is not measured |
-| `isCalibrated()` | `false` | No measured timing was fitted |
-| `calibrationSource()` | `none` | Where the fit would come from |
-| `warnings()` | Four caveats | Attached to `config.txt` and the console |
+| `name()` | `roofline-analytical` | `roofline-calibrated` |
+| `provenance()` | `synthetic` | `measured` |
+| `isCalibrated()` | `false` | `true` |
+| `calibrationSource()` | `none` | The line the scenario gives in `cost.calibration.source` |
+| `warnings()` | Four caveats | The fitted range and the effective-bandwidth caveat |
+
+Both classes write `name()` into every artifact row. The calibrated one refuses to load without
+`cost.calibration.source`, and its warnings say that a device-wide coefficient transfers from the
+fitted model and backend only as far as those stay comparable.
 
 The scenario reports the weakest provenance among the model, the device and the cost model. A
 model that claims to be calibrated while the device is synthetic still yields a synthetic run, and
@@ -176,5 +180,10 @@ A calibrated implementation must:
    calibrated and uncalibrated runs remains interpretable;
 4. add its own caveats, for instance the batch range of the fit.
 
-Until then, every duration in this repository is an estimate of a hardware limit under stated
-assumptions, not a measurement of a serving engine.
+`CalibratedRooflineCostModel` keeps the arithmetic of the analytical model and changes only what
+the estimate calls itself, so point 3 holds by construction. The committed
+[calibration example](../examples/calibration/README.md) fits its two coefficients to a
+llama-bench capture on one CPU and reports the residual against that capture.
+
+Scenarios that keep the analytical model remain estimates of a hardware limit under stated
+assumptions, not measurements of a serving engine.

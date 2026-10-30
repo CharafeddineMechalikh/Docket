@@ -55,10 +55,6 @@ public class GpuProfile {
 	protected double activePowerWatts;
 	/** Time the runtime spends launching the kernels of one decode iteration, in seconds. */
 	protected double kernelLaunchOverheadSeconds = 0;
-	/** Bandwidth of the host to device copy of a request, in bytes per second, {@code 0} to ignore it. */
-	protected double hostToDeviceBandwidthBytesPerSecond = 0;
-	/** Latency added by the host to device copy, in seconds. */
-	protected double hostTransferLatencySeconds = 0;
 	/** Where the numbers of this profile come from. */
 	protected Provenance provenance = Provenance.SYNTHETIC;
 	/** Free-text note shown in the artifacts, used to record the assumptions behind the values. */
@@ -158,7 +154,7 @@ public class GpuProfile {
 		if (activePowerWatts < idlePowerWatts)
 			throw new IllegalArgumentException("Device \"" + id + "\": the active power (" + activePowerWatts
 					+ " W) is below the idle power (" + idlePowerWatts + " W)");
-		if (kernelLaunchOverheadSeconds < 0 || hostTransferLatencySeconds < 0)
+		if (kernelLaunchOverheadSeconds < 0)
 			throw new IllegalArgumentException("Device \"" + id + "\": overheads cannot be negative");
 	}
 
@@ -198,8 +194,6 @@ public class GpuProfile {
 		copy.idlePowerWatts = idlePowerWatts;
 		copy.activePowerWatts = activePowerWatts;
 		copy.kernelLaunchOverheadSeconds = kernelLaunchOverheadSeconds;
-		copy.hostToDeviceBandwidthBytesPerSecond = hostToDeviceBandwidthBytesPerSecond;
-		copy.hostTransferLatencySeconds = hostTransferLatencySeconds;
 		copy.provenance = provenance;
 		copy.note = note;
 		return copy;
@@ -408,52 +402,6 @@ public class GpuProfile {
 	 */
 	public GpuProfile setKernelLaunchOverheadSeconds(double kernelLaunchOverheadSeconds) {
 		this.kernelLaunchOverheadSeconds = kernelLaunchOverheadSeconds;
-		return this;
-	}
-
-	/**
-	 * Returns the bandwidth of the host to device copy that brings a request onto the device, in
-	 * bytes per second, or zero when the copy is not charged to the request.
-	 *
-	 * @return copy bandwidth in bytes per second, zero to ignore the transfer
-	 */
-	public double getHostToDeviceBandwidthBytesPerSecond() {
-		return hostToDeviceBandwidthBytesPerSecond;
-	}
-
-	/**
-	 * Sets the bandwidth of the host to device copy that brings a request onto the device.
-	 *
-	 * @param hostToDeviceBandwidthBytesPerSecond copy bandwidth in bytes per second, zero to leave
-	 *                                            the transfer out of the latency
-	 * @return this profile
-	 */
-	public GpuProfile setHostToDeviceBandwidthBytesPerSecond(double hostToDeviceBandwidthBytesPerSecond) {
-		this.hostToDeviceBandwidthBytesPerSecond = hostToDeviceBandwidthBytesPerSecond;
-		return this;
-	}
-
-	/**
-	 * Returns the fixed latency added by each host to device copy, in seconds, charged on top of
-	 * the time the copied bytes take at the transfer bandwidth.
-	 * <p>
-	 * The configuration expresses this figure in milliseconds.
-	 *
-	 * @return transfer latency in seconds, zero when it is not modelled
-	 */
-	public double getHostTransferLatencySeconds() {
-		return hostTransferLatencySeconds;
-	}
-
-	/**
-	 * Sets the fixed latency added by each host to device copy.
-	 *
-	 * @param hostTransferLatencySeconds latency in seconds, zero or more (milliseconds divided
-	 *                                   by {@code 1e3})
-	 * @return this profile
-	 */
-	public GpuProfile setHostTransferLatencySeconds(double hostTransferLatencySeconds) {
-		this.hostTransferLatencySeconds = hostTransferLatencySeconds;
 		return this;
 	}
 

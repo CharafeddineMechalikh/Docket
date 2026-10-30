@@ -24,10 +24,13 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
+import com.mechalikh.docket.cost.CalibratedRooflineCostModel;
 import com.mechalikh.docket.cost.ExecutionCostModel;
 import com.mechalikh.docket.cost.RooflineAnalyticalCostModel;
 import com.mechalikh.docket.domain.GpuProfile;
@@ -244,9 +247,6 @@ public class Scenario {
 		device.setIdlePowerWatts(settings.number("device.idlePowerWatts", 0));
 		device.setActivePowerWatts(settings.number("device.activePowerWatts", 0));
 		device.setKernelLaunchOverheadSeconds(settings.millisToSeconds("device.kernelLaunchOverheadMs", 0));
-		device.setHostToDeviceBandwidthBytesPerSecond(
-				settings.number("device.hostToDeviceBandwidthGBs", 0) * 1e9);
-		device.setHostTransferLatencySeconds(settings.millisToSeconds("device.hostTransferLatencyMs", 0));
 		device.setProvenance(Provenance.parse(settings.text("device.provenance", "synthetic")));
 		device.setNote(settings.text("device.note", ""));
 		if (!device.declaredPrecisions().contains(model.getPrecision()))
@@ -308,6 +308,29 @@ public class Scenario {
 	}
 
 	/**
+	 * Applies the objectives stated per service class.
+	 * <p>
+	 * A recorded trace does not carry the promises an operator made to the classes it mixes, so
+	 * the scenario states them: {@code workload.ttftTargetSeconds.<class>} and its two siblings.
+	 * {@link WorkloadPlan#validate()} then refuses a class that no request of this workload belongs
+	 * to, because a target nobody meets is worse than an absent one.
+	 *
+	 * @param plan     the workload plan to annotate
+	 * @param settings the settings
+	 */
+	private static void applyClassTargets(WorkloadPlan plan, Settings settings) {
+		Set<String> classes = new LinkedHashSet<>();
+		classes.addAll(settings.distributionAttributes("workload.ttftTargetSeconds").keySet());
+		classes.addAll(settings.distributionAttributes("workload.endToEndTargetSeconds").keySet());
+		classes.addAll(settings.distributionAttributes("workload.tpotTargetSeconds").keySet());
+		for (String serviceClass : classes)
+			plan.setClassTarget(serviceClass,
+					settings.number("workload.ttftTargetSeconds." + serviceClass, 0),
+					settings.number("workload.endToEndTargetSeconds." + serviceClass, 0),
+					settings.number("workload.tpotTargetSeconds." + serviceClass, 0));
+	}
+
+	/**
 	 * Builds the workload plan.
 	 *
 	 * @param settings the settings
@@ -351,6 +374,7 @@ public class Scenario {
 		plan.setEndToEndTargetSeconds(settings.number("workload.endToEndTargetSeconds", 0));
 		plan.setTpotTargetSeconds(settings.number("workload.tpotTargetSeconds", 0));
 		plan.setCancellationDelaySeconds(settings.number("workload.cancellationDelaySeconds", 0));
+		applyClassTargets(plan, settings);
 		if (plan.isTrace()) {
 			String file = settings.text("workload.traceFile");
 			double scale = settings.number("workload.traceTimeScale", 1);
@@ -519,13 +543,17 @@ public class Scenario {
 	 */
 	private static ExecutionCostModel costModel(Settings settings, List<ReplicaSpec> replicas) {
 		String name = settings.text("cost.model", RooflineAnalyticalCostModel.NAME);
-		if (!name.equalsIgnoreCase(RooflineAnalyticalCostModel.NAME))
-			throw new IllegalArgumentException("The only execution cost model implemented so far is \""
-					+ RooflineAnalyticalCostModel.NAME + "\", found \"" + name + "\"");
 		int maxBatch = 0;
 		for (ReplicaSpec spec : replicas)
 			maxBatch = Math.max(maxBatch, spec.getMaxBatchSize());
-		RooflineAnalyticalCostModel cost = new RooflineAnalyticalCostModel();
+		RooflineAnalyticalCostModel cost;
+		if (name.equalsIgnoreCase(RooflineAnalyticalCostModel.NAME))
+			cost = new RooflineAnalyticalCostModel();
+		else if (name.equalsIgnoreCase(CalibratedRooflineCostModel.NAME))
+			cost = new CalibratedRooflineCostModel(settings.text("cost.calibration.source", ""));
+		else
+			throw new IllegalArgumentException("Unknown execution cost model \"" + name + "\", expected \""
+					+ RooflineAnalyticalCostModel.NAME + "\" or \"" + CalibratedRooflineCostModel.NAME + "\"");
 		cost.setSupportedMaxBatchSize(settings.integer("cost.supportedMaxBatchSize", Math.max(maxBatch, 1)));
 		cost.setSupportedMaxStepTokens(settings.integer("cost.supportedMaxStepTokens", 16384));
 		return cost;

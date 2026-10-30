@@ -1,9 +1,9 @@
-experiment  burstgpt, 120.0 s, seed 1, 1 repetition(s)
+experiment  burstgpt, 400.0 s, seed 1, 1 repetition(s)
 model       burstgpt: 7000000000 parameters, 32 layers, hidden 4096, kv 4096 scalars/token, fp16, context 32768 tokens [synthetic]
 device      gpu-80g: 80.0 GiB, 3350 GB/s, achieved [fp16] 700.0 TFLOPS [synthetic]
 deployment  1 replica(s), batch <= 64, prefill chunk 512 tokens, block 16 tokens, preemption newest-first, deadline abort off
 cost        roofline-analytical [synthetic, uncalibrated]
-workload    trace of 600 rows; lengths: input=trace, output=trace; prediction=trace-observed
+workload    trace of 2000 rows; lengths: input=trace, output=trace; prediction=trace-observed; targets=none
 policies    admission unlimited, routing least-queued, scheduling fcfs
 
 # Provenance of the weakest input: synthetic
@@ -12,11 +12,11 @@ policies    admission unlimited, routing least-queued, scheduling fcfs
 # WARNING the achieved throughput of the device is used, never its published peak
 # WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
 # WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
-# Trace: trace burstgpt.csv, 600 rows read, 600 replayed
-# Pooled ttft_s: n=600 mean=0.036687 p99=0.115138
-# Pooled e2e_s: n=600 mean=0.101304 p99=0.885942
-# Pooled tpot_s: n=600 mean=0.018425 p99=0.060062
-# Pooled mean_itl_s: n=600 mean=0.018425 p99=0.060062
-# Pooled queueing_s: n=600 mean=0.031055 p99=0.110928
-# Pooled prefill_s: n=600 mean=0.005631 p99=0.064473
-# Pooled decode_s: n=600 mean=0.021950 p99=0.744406
+# Trace: trace burstgpt.csv, 2000 rows read, 2000 replayed
+# Pooled ttft_s: n=2000 mean=0.035023 p99=0.119813
+# Pooled e2e_s: n=2000 mean=0.103844 p99=1.134802
+# Pooled tpot_s: n=2000 mean=0.018182 p99=0.062384
+# Pooled mean_itl_s: n=2000 mean=0.018182 p99=0.062384
+# Pooled queueing_s: n=2000 mean=0.029348 p99=0.115493
+# Pooled prefill_s: n=2000 mean=0.005675 p99=0.064560
+# Pooled decode_s: n=2000 mean=0.024301 p99=0.933292

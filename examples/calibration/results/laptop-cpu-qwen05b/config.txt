@@ -1,0 +1,22 @@
+experiment  laptop-cpu-qwen05b, 90.0 s, seed 1, 1 repetition(s)
+model       qwen2.5-0.5b-instruct: 494032768 parameters, 24 layers, hidden 896, kv 128 scalars/token, fp16, context 32768 tokens [measured]
+device      laptop-cpu: 7.8 GiB, 10 GB/s, achieved [fp16] 0.0844 TFLOPS [measured]
+deployment  1 replica(s), batch <= 1, prefill chunk 1024 tokens, block 16 tokens, preemption off, deadline abort off
+cost        roofline-calibrated [measured, calibrated]
+workload    fixed, every 30.000 s; lengths: input=constant, output=constant; prediction=oracle; targets=none
+policies    admission unlimited, routing least-queued, scheduling fcfs
+
+# Provenance of the weakest input: measured
+# Cost model: roofline-calibrated, provenance measured, calibrated=yes, source=llama.cpp b12014, Qwen2.5-0.5B-Instruct f16, Intel Core i7-8550U 4 threads, measured 2026-10-30
+# WARNING roofline-calibrated applies device coefficients measured by this project; the benchmark is named as the calibration source of every artifact
+# WARNING the arithmetic is still the analytical roofline, so coefficients fitted to one model, one backend and one batch range are applied to every model and to larger batches and steps; the measured label covers only the fitted range
+# WARNING the memory bandwidth is an effective figure: it absorbs kernel inefficiency the roofline does not model, so it is not a hardware datasheet value
+# WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+# WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+# Pooled ttft_s: n=3 mean=6.013072 p99=6.013072
+# Pooled e2e_s: n=3 mean=12.220408 p99=12.220408
+# Pooled tpot_s: n=3 mean=0.098529 p99=0.098529
+# Pooled mean_itl_s: n=3 mean=0.098529 p99=0.098529
+# Pooled queueing_s: n=3 mean=0.000000 p99=0.000000
+# Pooled prefill_s: n=3 mean=6.013072 p99=6.013072
+# Pooled decode_s: n=3 mean=6.207336 p99=6.207336

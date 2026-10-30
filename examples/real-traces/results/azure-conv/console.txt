@@ -1,6 +1,6 @@
 Docket 1.0.1 | experiment "azure-conv"
 ------------------------------------------------------------------------------
-simulated duration   : 210.000 s per repetition
+simulated duration   : 700.000 s per repetition
 repetitions          : 1, seed 1
 model                : azure-conv (7000.0M parameters, none), provenance synthetic
 device               : gpu-80g, provenance synthetic
@@ -16,24 +16,24 @@ WARNING weights are charged once per step, which assumes a fused kernel; a backe
 WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
 
 rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
-1            600       600   1.0000    0.0246    0.0939    3.9139   0.00942     0.0000    747.1  99989.16
+1           2000      2000   1.0000    0.0265    0.1083    4.8350   0.01139     0.0000    756.9 303308.82
 
 Pooled over every row of every repetition, and over the per-repetition means:
 metric              n      mean       p50       p90       p95       p99         max
-ttft_s            600    0.0249    0.0246    0.0386    0.0705    0.0939    0.1600         n/a
-e2e_s             600    1.7189    1.4924    3.0936    3.4872    3.9139    4.5555         n/a
-tpot_s            600    0.0064    0.0063    0.0081    0.0086    0.0094    0.0160         n/a
-mean_itl_s        600    0.0064    0.0063    0.0081    0.0086    0.0094    0.0160         n/a
-queueing_s        600    0.0047    0.0030    0.0073    0.0173    0.0435    0.0828         n/a
-prefill_s         600    0.0202    0.0203    0.0270    0.0584    0.0882    0.0932         n/a
-decode_s          600    0.2093    0.1988    0.3898    0.4894    0.7613    1.0329         n/a
+ttft_s           2000    0.0301    0.0265    0.0625    0.0916    0.1083    0.1862         n/a
+e2e_s            2000    1.9251    1.8941    3.5525    3.9680    4.8350    7.1952         n/a
+tpot_s           2000    0.0071    0.0070    0.0090    0.0097    0.0114    0.0180         n/a
+mean_itl_s       2000    0.0071    0.0070    0.0090    0.0097    0.0114    0.0180         n/a
+queueing_s       2000    0.0060    0.0033    0.0094    0.0248    0.0630    0.1292         n/a
+prefill_s        2000    0.0241    0.0253    0.0414    0.0880    0.0932    0.1825         n/a
+decode_s         2000    0.1823    0.1751    0.3511    0.4180    0.6511    1.0329         n/a
 
-mean over 1 repetition(s): completed 600.0 +- 0.0, goodput 0.0000 +- 0.0000, tokens/s 747.1 +- 0.0, utilisation 0.656 +- 0.000
+mean over 1 repetition(s): completed 2000.0 +- 0.0, goodput 0.0000 +- 0.0000, tokens/s 756.9 +- 0.0, utilisation 0.590 +- 0.000
 
 Service level objectives, over the requests that stated the objective:
 class            offered      ttft       e2e      tpot       all
-default              600         -         -         -         -
+default             2000         -         -         -         -
 
-replica 0 (azure-conv on gpu-80g): 1392 prefill steps, 23341 iterations, batch mean 6.70 peak 25, preemptions 0, cache refusals 0, stalls 0, peak cache 21.5% of 8059 blocks, utilisation 65.6%, energy 99989.157 J
+replica 0 (azure-conv on gpu-80g): 5327 prefill steps, 62695 iterations, batch mean 8.42 peak 28, preemptions 0, cache refusals 0, stalls 0, peak cache 28.3% of 8059 blocks, utilisation 59.0%, energy 303308.819 J
 
-Artifacts written under target\trace-replays/azure-conv
+Artifacts written under target\replays/azure-conv

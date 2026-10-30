@@ -1,0 +1,5 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+laptop-cpu-qwen05b,1,calibration,ttft,3,3,0,0,NaN
+laptop-cpu-qwen05b,1,calibration,e2e,3,3,0,0,NaN
+laptop-cpu-qwen05b,1,calibration,tpot,3,3,0,0,NaN
+laptop-cpu-qwen05b,1,calibration,all,3,3,0,0,NaN

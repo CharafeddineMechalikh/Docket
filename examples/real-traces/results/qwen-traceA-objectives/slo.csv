@@ -1,0 +1,17 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+qwen-traceA-objectives,1,image,ttft,116,116,116,116,1.0
+qwen-traceA-objectives,1,image,e2e,116,116,116,116,1.0
+qwen-traceA-objectives,1,image,tpot,116,116,116,116,1.0
+qwen-traceA-objectives,1,image,all,116,116,116,116,1.0
+qwen-traceA-objectives,1,text,ttft,1428,1411,1428,1409,0.9866946778711485
+qwen-traceA-objectives,1,text,e2e,1428,1411,1428,1373,0.961484593837535
+qwen-traceA-objectives,1,text,tpot,1428,1411,1411,1096,0.7767540751240255
+qwen-traceA-objectives,1,text,all,1428,1411,1428,1074,0.7521008403361344
+qwen-traceA-objectives,1,search,ttft,377,370,377,370,0.9814323607427056
+qwen-traceA-objectives,1,search,e2e,377,370,377,370,0.9814323607427056
+qwen-traceA-objectives,1,search,tpot,377,370,370,370,1.0
+qwen-traceA-objectives,1,search,all,377,370,377,370,0.9814323607427056
+qwen-traceA-objectives,1,file,ttft,79,75,79,75,0.9493670886075949
+qwen-traceA-objectives,1,file,e2e,79,75,79,75,0.9493670886075949
+qwen-traceA-objectives,1,file,tpot,79,75,75,75,1.0
+qwen-traceA-objectives,1,file,all,79,75,79,75,0.9493670886075949

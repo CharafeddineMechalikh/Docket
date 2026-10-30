@@ -1,0 +1,40 @@
+Docket development build | experiment "laptop-cpu-qwen05b"
+------------------------------------------------------------------------------
+simulated duration   : 90.000 s per repetition
+repetitions          : 1, seed 1
+model                : qwen2.5-0.5b-instruct (494.0M parameters, none), provenance measured
+device               : laptop-cpu, provenance measured
+replicas             : 1
+cost model           : roofline-calibrated, measured, calibrated on llama.cpp b12014, Qwen2.5-0.5B-Instruct f16, Intel Core i7-8550U 4 threads, measured 2026-10-30
+overall provenance   : measured
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : fixed, model qwen2.5-0.5b-instruct
+------------------------------------------------------------------------------
+WARNING roofline-calibrated applies device coefficients measured by this project; the benchmark is named as the calibration source of every artifact
+WARNING the arithmetic is still the analytical roofline, so coefficients fitted to one model, one backend and one batch range are applied to every model and to larger batches and steps; the measured label covers only the fitted range
+WARNING the memory bandwidth is an effective figure: it absorbs kernel inefficiency the roofline does not model, so it is not a hardware datasheet value
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1              3         3   1.0000    6.0131    6.0131   12.2204   0.09853     0.0000      2.1      0.00
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s              3    6.0131    6.0131    6.0131    6.0131    6.0131    6.0131         n/a
+e2e_s               3   12.2204   12.2204   12.2204   12.2204   12.2204   12.2204         n/a
+tpot_s              3    0.0985    0.0985    0.0985    0.0985    0.0985    0.0985         n/a
+mean_itl_s          3    0.0985    0.0985    0.0985    0.0985    0.0985    0.0985         n/a
+queueing_s          3    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000         n/a
+prefill_s           3    6.0131    6.0131    6.0131    6.0131    6.0131    6.0131         n/a
+decode_s            3    6.2073    6.2073    6.2073    6.2073    6.2073    6.2073         n/a
+
+mean over 1 repetition(s): completed 3.0 +- 0.0, goodput 0.0000 +- 0.0000, tokens/s 2.1 +- 0.0, utilisation 0.407 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+calibration            3         -         -         -         -
+
+replica 0 (qwen2.5-0.5b-instruct on laptop-cpu): 3 prefill steps, 189 iterations, batch mean 1.00 peak 1, preemptions 0, cache refusals 0, stalls 0, peak cache 0.1% of 33509 blocks, utilisation 40.7%, energy 0.000 J
+
+Artifacts written under examples\calibration\results/laptop-cpu-qwen05b

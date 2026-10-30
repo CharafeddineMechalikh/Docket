@@ -11,10 +11,12 @@ machinery used for edge-cloud experiments. What is new here is the serving model
 prefill phase separated from a decode phase, continuous batching, chunked prefill, a paged KV
 cache with block rounding, and preemption with recompute.
 
-> **Read the numbers as a check of the mechanics, never as a prediction about hardware.** Every
-> figure this repository ships is produced by a synthetic, uncalibrated cost model and a synthetic
-> device. The simulator does not measure a real accelerator, and no scenario here should be
-> quoted as "what an H100 does". See [Provenance and limits](#provenance-and-limits).
+> **Read the numbers as a check of the mechanics, never as a prediction about hardware.** Almost
+> every figure this repository ships is produced by a synthetic, uncalibrated cost model and a
+> synthetic device; the one exception is the laptop-CPU calibration in
+> [examples/calibration](examples/calibration/README.md), which measures service time on that CPU
+> and nothing on a GPU. No scenario here should be quoted as "what an H100 does". See
+> [Provenance and limits](#provenance-and-limits).
 
 Contents:
 
@@ -81,7 +83,8 @@ Not in this stage:
 
 - multi-GPU or multi-node topologies, tensor or pipeline parallelism;
 - disaggregated prefill and decode on separate pools;
-- calibration of the roofline or power model against a real engine or accelerator;
+- calibration of the roofline or power model against an accelerator, or of power against any
+  engine (the laptop-CPU calibration covers service time on that CPU only);
 - speculative decoding, prefix caching across requests, or quantized-kernel modelling beyond the
   scalar byte width.
 
@@ -206,22 +209,44 @@ scenarios; see [Reproducing the published numbers](#reproducing-the-published-nu
 `examples/real-traces/` replays four public traces through the same engine: Azure's 2023
 conversation trace, the Qwen-Bailian trace, the Mooncake conversation trace recorded on Kimi
 traffic, and BurstGPT, the bursty dataset NVIDIA's AI Perf replays. Each is cut to a committed
-600-request window with a converter, a scenario and a SHA-256 provenance record, so the replays
+2,000-request window with a converter, a scenario and a SHA-256 provenance record, so the replays
 need no download. The traffic is measured; the latencies and the energy are not, because the
 device and the cost model stay synthetic.
 
 | Trace | Completed | TTFT mean / p99 (s) | E2E mean / p99 (s) | Output tok/s | Energy (Wh) | Batch mean / peak |
 |---|---|---|---|---|---|---|
-| Azure conversation | 600/600 | 0.0249 / 0.0939 | 1.7189 / 3.9139 | 747.1 | 27.77 | 6.70 / 25 |
-| Qwen-Bailian trace A | 600/600 | 0.0476 / 0.2797 | 3.3981 / 15.3847 | 812.6 | 40.28 | 8.97 / 29 |
-| Mooncake / Kimi | 600/600 | 0.6361 / 5.7174 | 3.1578 / 17.5101 | 325.8 | 482.99 | 0.77 / 2 |
-| BurstGPT | 600/600 | 0.0367 / 0.1151 | 0.1013 / 0.8859 | 40.3 | 4.65 | 1.50 / 20 |
+| Azure conversation | 2,000/2,000 | 0.0301 / 0.1083 | 1.9251 / 4.8350 | 756.9 | 84.25 | 8.42 / 28 |
+| Qwen-Bailian trace A | 1,972/2,000 | 0.0613 / 0.3724 | 5.7935 / 25.8029 | 660.1 | 123.93 | 15.08 / 44 |
+| Mooncake / Kimi | 2,000/2,000 | 0.5956 / 5.6400 | 3.1764 / 14.0258 | 733.4 | 1,132.34 | 0.76 / 2 |
+| BurstGPT | 2,000/2,000 | 0.0350 / 0.1198 | 0.1038 / 1.1348 | 44.7 | 16.38 | 1.52 / 20 |
 
 `run_replays.sh` runs the four scenarios and `verify_replays.py` reconciles every request row
 against the recorded window, so a run that loses, duplicates or rescales an arrival fails. All
-four reconcile with a maximum arrival difference of 0 s. The Kimi window also found and fixed a
-scheduler liveness defect under long-context memory pressure; both are documented in
+four reconcile with a maximum arrival difference of 0 s. The Qwen window completes 1,972 because
+28 requests are refused at admission for lack of cache, a recorded policy decision rather than a
+lost request. The Kimi window also found and fixed a scheduler liveness defect under long-context
+memory pressure; both are documented in
 [examples/real-traces/README.md](examples/real-traces/README.md).
+
+A fifth scenario replays the Qwen window with per-class objectives written into the scenario,
+`workload.ttftTargetSeconds.<class>` and its two siblings, and reports a measured goodput of
+0.8175 against them. The objectives are an assumption; the arrivals, lengths and classes are not.
+
+## A measured calibration
+
+`examples/calibration/` replaces the hand-chosen device coefficients with two figures fitted to a
+real engine on a real machine: llama.cpp b12014 on an Intel Core i7-8550U, serving
+Qwen2.5-0.5B-Instruct in f16. Prefill gives 0.0844 achieved TFLOPS and batch-1 decode gives
+10.096 GB/s effective bandwidth. The scenario uses `cost.model=roofline-calibrated` and names the
+benchmark, so its console prints `overall provenance : measured` and every artifact row carries
+`cost_calibration=calibrated`.
+
+The fitted coefficients reproduce the benchmark inside the fitted range: the 256, 512 and 1,024
+token prefills differ by +1.1%, +3.4% and -1.9%, and batch-1 decode at the benchmarked context
+agrees to 0.0%. Outside that range the roofline is optimistic: at a 512-token context the CPU
+backend decodes 12.5% slower than the model predicts, because its attention kernel does not reach
+the effective bandwidth the weights do. The example reports that residual instead of tuning it
+away, and the CPU profile is not a claim about a GPU.
 
 ## How the simulator works
 
@@ -414,8 +439,6 @@ invocation.
 | `device.idlePowerWatts` | `0` | Power when no sequence runs |
 | `device.activePowerWatts` | `0` | Power while at least one sequence runs |
 | `device.kernelLaunchOverheadMs` | `0` | Fixed per-step launch cost |
-| `device.hostToDeviceBandwidthGBs` | `0` | Transfer bandwidth for models that stream weights |
-| `device.hostTransferLatencyMs` | `0` | Fixed transfer latency |
 | `device.provenance` | `synthetic` | `synthetic`, `literature` or `measured` |
 | `device.note` | empty | Free-form note echoed into the artifacts |
 
@@ -466,6 +489,7 @@ Two replicas never share a device instance: each would count the whole memory as
 | `workload.ttftTargetSeconds` | `0` | TTFT target, measured from arrival |
 | `workload.tpotTargetSeconds` | `0` | Per-token target |
 | `workload.endToEndTargetSeconds` | `0` | End-to-end target, measured from arrival |
+| `workload.ttftTargetSeconds.<class>` | global | The three objectives stated for one service class; `endToEnd` and `tpot` take the same suffix, and a field left at `0` keeps the global value |
 | `workload.cancellationDelaySeconds` | `0` | Client abandonment delay after arrival |
 | `workload.modelId` | `model.id` | Model the workload targets |
 | `workload.traceFile` | required for trace | CSV trace, resolved against the scenario file |
@@ -578,9 +602,15 @@ to the jar, and name it in the scenario. The class needs a public no-argument co
 
 | Key | Default | Meaning |
 |---|---|---|
-| `cost.model` | `roofline-analytical` | The only implemented execution cost model |
+| `cost.model` | `roofline-analytical` | `roofline-analytical` or `roofline-calibrated` |
+| `cost.calibration.source` | required for `roofline-calibrated` | The benchmark and hardware the coefficients were fitted to |
 | `cost.supportedMaxBatchSize` | largest replica batch | Batch size above which a step is flagged as extrapolated |
 | `cost.supportedMaxStepTokens` | `16384` | Step tokens above which a step is flagged as extrapolated |
+
+Both models use the same arithmetic. The analytical one takes the device figures on trust; the
+calibrated one assumes they were fitted to a benchmark that `cost.calibration.source` names, and
+refuses to load without it. Measured profiles priced by the calibrated model report
+`overall provenance : measured`; the same profiles priced analytically report `synthetic`.
 
 ## Policies
 
@@ -787,8 +817,8 @@ flowchart LR
 | `literature` | Taken from a published specification or paper |
 | `measured` | Produced by a measurement on this machine or a named device |
 
-The cost model is `roofline-analytical` and uncalibrated. Two consequences follow, and they are
-stated in every artifact:
+Except for the laptop-CPU calibration, the cost model is `roofline-analytical` and uncalibrated.
+Two consequences follow, and they are stated in every artifact:
 
 - The device reports an *achieved* throughput and bandwidth. Those figures are declared in the
   scenario, not measured here.
@@ -885,6 +915,7 @@ Docket/
 │   ├── README.md                 the index and the measured headline of each example
 │   ├── common.sh                 classpath and run helpers shared by the example scripts
 │   ├── data/                     the generated SLA and session workloads
+│   ├── calibration/              llama.cpp captures, fit and the measured scenario
 │   └── real-traces/              public trace windows, scenarios, converter and replay check
 ├── scripts/
 │   ├── run_sweeps.sh             the 19-configuration sweep driver
@@ -954,10 +985,13 @@ effort.
 - [x] Per-request latency metrics, plus per-service-class SLO attainment and goodput.
 - [x] Energy from a two-level power model, integrated over simulated time.
 - [x] Five arrival patterns, sixteen length distributions, and CSV trace replay.
-- [x] Four public serving traces replayed under [examples/real-traces](examples/real-traces/README.md).
+- [x] Four public serving traces replayed under [examples/real-traces](examples/real-traces/README.md),
+      each 2,000 requests long.
+- [x] Per-class SLO targets in a trace scenario, so a replay reports measured goodput
+      (0.8175 on the Qwen objectives run) instead of not applicable.
 - [x] Nine worked policy examples, each with its own tests and measured result.
 - [x] A strict properties loader, a CLI with exit codes, and CSV, JSONL and console artifacts.
-- [x] Reproducible repetitions and 140 tests, including an accounting invariant per run.
+- [x] Reproducible repetitions and 146 tests, including an accounting invariant per run.
 
 ### Where the project stands
 
@@ -978,19 +1012,10 @@ own request lifecycle, because a serving replica batching tokens step by step is
 Multi-device work is the point at which that choice is worth revisiting, and that is deliberate
 about where the cost lands.
 
-One loose end belongs to the same question. `device.hostToDeviceBandwidthGBs` and
-`device.hostTransferLatencyMs` are parsed and validated but read by nothing, so a per-hop transfer
-term is declared in the settings file and absent from the model.
-
 ### Next, evidence first
 
 - [ ] Calibrate the roofline and power coefficients against one serving engine on one device, and
       label the result `measured` so the provenance lattice flips for the whole run.
-- [ ] Replay more than 600 rows per trace, and add a trace that states SLO targets, so goodput is
-      measured rather than reported as not applicable.
-- [ ] Either consume `device.hostToDeviceBandwidthGBs` and `device.hostTransferLatencyMs` as a
-      transfer term the moment a second device exists, or delete them from the loader and the
-      settings documentation. Dead configuration is worse than absent configuration.
 
 ### Later, scope
 
@@ -1000,7 +1025,7 @@ term is declared in the settings file and absent from the model.
       moves a request stage by stage, and accounts the bubbles. This breaks the one-step-at-a-time
       invariant of `ReplicaServer`, so it is a new component, not a flag.
 - [ ] Disaggregated prefill and decode on separate pools, with the KV transfer between them using
-      the link term above.
+      the inter-node link term.
 - [ ] Prefix caching across requests, so a shared prompt prefix is not recomputed and the session
       identifiers in the Qwen and Mooncake traces can be routed.
 - [ ] An HTTP or gRPC front end, so the simulator can sit behind a load generator.

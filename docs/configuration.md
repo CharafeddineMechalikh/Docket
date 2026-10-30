@@ -123,8 +123,6 @@ Byte-per-scalar defaults: `fp32` and `tf32` 4; `fp16` and `bf16` 2; `fp8` and `i
 | `device.idlePowerWatts` | `0` | Zero or more |
 | `device.activePowerWatts` | `0` | Zero or more; if zero, energy is not modelled |
 | `device.kernelLaunchOverheadMs` | `0` | Zero or more, converted to seconds |
-| `device.hostToDeviceBandwidthGBs` | `0` | Zero means transfers are not modelled |
-| `device.hostTransferLatencyMs` | `0` | Zero or more, converted to seconds |
 | `device.provenance` | `synthetic` | `synthetic`, `literature` or `measured` |
 | `device.note` | empty | Free text, echoed into the artifacts |
 
@@ -231,11 +229,19 @@ assumed and what happened.
 | `workload.ttftTargetSeconds` | `0` | Zero or more; zero means not stated |
 | `workload.tpotTargetSeconds` | `0` | Zero or more; zero means not stated |
 | `workload.endToEndTargetSeconds` | `0` | Zero or more; zero means not stated |
+| `workload.ttftTargetSeconds.<class>` | the global value | Zero or more, per service class; `tpot` and `endToEnd` take the same suffix |
 | `workload.cancellationDelaySeconds` | `0` | Zero or more; zero means the client never gives up |
 | `workload.modelId` | `model.id` | Must match the served model unless the pattern is `trace` |
 
 Targets are relative to arrival, not to admission. A request that was preempted keeps its original
 arrival, so its TTFT includes every queue episode of its life.
+
+A class-keyed target is where an operator states what a class is promised, which is the only way a
+replayed trace can report goodput: the trace says what arrived, not what was guaranteed. Precedence
+is per field and goes row, then class, then global, so a trace that carries `ttft_target_s` keeps
+its own value and a class that leaves a field at `0` inherits the global one. A class that no
+request of the workload belongs to is refused at load, because a target nobody can meet is worse
+than an absent one.
 
 ### Trace replay
 
@@ -270,9 +276,18 @@ See [policies](policies.md) for the rules, the oracle distinction and the loadin
 
 | Key | Default | Rule |
 |---|---|---|
-| `cost.model` | `roofline-analytical` | Only implemented value |
+| `cost.model` | `roofline-analytical` | `roofline-analytical` or `roofline-calibrated` |
+| `cost.calibration.source` | required for `roofline-calibrated` | Non-empty; names the benchmark and hardware the coefficients were fitted to |
 | `cost.supportedMaxBatchSize` | largest `replica.maxBatchSize` | At least 1; above it, a step is flagged as extrapolated |
 | `cost.supportedMaxStepTokens` | `16384` | At least 1; above it, a step is flagged |
+
+Both models use the same roofline arithmetic. `roofline-analytical` takes the device figures on
+trust and says so. `roofline-calibrated` assumes the achieved throughput and the effective
+bandwidth were fitted to a benchmark, which `cost.calibration.source` must name; a calibrated
+model without that line is refused at load time. The scenario label then follows
+[the provenance rules](cost-model.md#provenance-and-the-calibration-contract): measured profiles
+priced by a calibrated model report `measured`, and the same profiles priced by the analytical
+model report `synthetic`.
 
 The support envelope does not refuse a step; it attaches a warning to the estimate and the run, so
 an extrapolated result is still produced and still labelled.

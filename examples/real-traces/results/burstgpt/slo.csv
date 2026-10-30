@@ -1,9 +1,9 @@
 experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
-burstgpt,1,api,ttft,599,599,0,0,NaN
-burstgpt,1,api,e2e,599,599,0,0,NaN
-burstgpt,1,api,tpot,599,599,0,0,NaN
-burstgpt,1,api,all,599,599,0,0,NaN
-burstgpt,1,conversation,ttft,1,1,0,0,NaN
-burstgpt,1,conversation,e2e,1,1,0,0,NaN
-burstgpt,1,conversation,tpot,1,1,0,0,NaN
-burstgpt,1,conversation,all,1,1,0,0,NaN
+burstgpt,1,api,ttft,1992,1992,0,0,NaN
+burstgpt,1,api,e2e,1992,1992,0,0,NaN
+burstgpt,1,api,tpot,1992,1992,0,0,NaN
+burstgpt,1,api,all,1992,1992,0,0,NaN
+burstgpt,1,conversation,ttft,8,8,0,0,NaN
+burstgpt,1,conversation,e2e,8,8,0,0,NaN
+burstgpt,1,conversation,tpot,8,8,0,0,NaN
+burstgpt,1,conversation,all,8,8,0,0,NaN
