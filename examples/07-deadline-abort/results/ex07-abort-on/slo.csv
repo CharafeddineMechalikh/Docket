@@ -1,0 +1,9 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex07-abort-on,1,batch,ttft,416,416,416,405,0.9735576923076923
+ex07-abort-on,1,batch,e2e,416,416,416,416,1.0
+ex07-abort-on,1,batch,tpot,416,416,416,416,1.0
+ex07-abort-on,1,batch,all,416,416,416,405,0.9735576923076923
+ex07-abort-on,1,interactive,ttft,184,153,184,27,0.14673913043478262
+ex07-abort-on,1,interactive,e2e,184,153,184,153,0.8315217391304348
+ex07-abort-on,1,interactive,tpot,184,153,179,179,1.0
+ex07-abort-on,1,interactive,all,184,153,184,27,0.14673913043478262

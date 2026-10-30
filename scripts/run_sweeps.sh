@@ -9,7 +9,7 @@
 set -u
 cd "$(dirname "$0")/.."
 OUT=${1:-target/sweep}
-JAR=target/genai-inference-sim-1.0.1.jar
+JAR=target/docket-1.0.1.jar
 LOADED=scenarios/loaded-7b-memory-pressure.properties
 LIGHT=scenarios/single-gpu-poisson.properties
 fail=0

@@ -253,14 +253,18 @@ See [trace replay](traces.md) for the column schema.
 | Key | Default | Rule |
 |---|---|---|
 | `policy.admission` | `unlimited` | Comma-separated chain; applied in order; first refusal wins |
+| `policy.admission.class` | unset | Fully qualified class implementing `AdmissionPolicy`; wins over `policy.admission` |
 | `policy.queueLimit.maxWaitingRequests` | required for `queue-limit` | At least 1; a zero would refuse every arrival |
 | `policy.cacheCapacity.headroomTokens` | `0` | Zero or more |
 | `policy.predictedDeadline.tolerance` | `1` | Zero or more; fraction of the slack |
 | `policy.routing` | `least-queued` | `round-robin`, `least-queued`, `least-predicted-work` |
+| `policy.routing.class` | unset | Fully qualified class implementing `RoutingPolicy`; wins over `policy.routing` |
 | `policy.scheduling` | `fcfs` | `fcfs`, `priority`, `shortest-expected-first`, `shortest-oracle-first` |
+| `policy.scheduling.class` | unset | Fully qualified class implementing `SchedulingPolicy`; wins over `policy.scheduling` |
 
-An unknown name is an error that lists the accepted values. See [policies](policies.md) for the
-rules and the oracle distinction.
+An unknown name is an error that lists the accepted values. A class key must name a class on the
+run's classpath with a public no-argument constructor; the error names the setting and the class.
+See [policies](policies.md) for the rules, the oracle distinction and the loading hook.
 
 ## `cost.*`
 

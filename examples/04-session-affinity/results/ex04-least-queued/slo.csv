@@ -1,0 +1,5 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex04-least-queued,1,interactive,ttft,400,400,400,400,1.0
+ex04-least-queued,1,interactive,e2e,400,400,400,400,1.0
+ex04-least-queued,1,interactive,tpot,400,400,400,400,1.0
+ex04-least-queued,1,interactive,all,400,400,400,400,1.0

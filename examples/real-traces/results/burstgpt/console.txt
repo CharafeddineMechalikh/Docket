@@ -1,4 +1,4 @@
-GenAIInferenceSim 1.0.1 | experiment "burstgpt"
+Docket 1.0.1 | experiment "burstgpt"
 ------------------------------------------------------------------------------
 simulated duration   : 120.000 s per repetition
 repetitions          : 1, seed 1

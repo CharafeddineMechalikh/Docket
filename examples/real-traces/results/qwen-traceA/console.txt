@@ -1,4 +1,4 @@
-GenAIInferenceSim 1.0.1 | experiment "qwen-traceA"
+Docket 1.0.1 | experiment "qwen-traceA"
 ------------------------------------------------------------------------------
 simulated duration   : 260.000 s per repetition
 repetitions          : 1, seed 1

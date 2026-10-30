@@ -1,4 +1,4 @@
-# GenAIInferenceSim
+# Docket
 
 A discrete-event simulator for generative-AI (LLM) inference serving. You describe a model, a
 device and a stream of requests in a properties file; the simulator replays that stream tick by
@@ -93,22 +93,22 @@ Not in this stage:
 - No GPU. The PureEdgeSim engine is resolved as a normal Maven dependency.
 
 ```bash
-git clone https://github.com/CharafeddineMechalikh/GenAIInferenceSim.git
-cd GenAIInferenceSim
+git clone https://github.com/CharafeddineMechalikh/Docket.git
+cd Docket
 mvn clean package
 ```
 
-This produces `target/genai-inference-sim-1.0.1.jar` and fills `target/lib/` with the runtime
+This produces `target/docket-1.0.1.jar` and fills `target/lib/` with the runtime
 dependencies, so the jar is runnable on its own:
 
 ```bash
-java -jar target/genai-inference-sim-1.0.1.jar scenarios/single-gpu-poisson.properties
+java -jar target/docket-1.0.1.jar scenarios/single-gpu-poisson.properties
 ```
 
 Running from loose classes works too:
 
 ```bash
-java -cp "target/classes:target/lib/*" com.mechalikh.genaism.cli.Main \
+java -cp "target/classes:target/lib/*" com.mechalikh.docket.cli.Main \
     scenarios/single-gpu-poisson.properties
 ```
 
@@ -116,14 +116,14 @@ java -cp "target/classes:target/lib/*" com.mechalikh.genaism.cli.Main \
 
 ```bash
 mvn -q package
-java -jar target/genai-inference-sim-1.0.1.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
+java -jar target/docket-1.0.1.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
 ```
 
 The console report starts with what ran and how far it can be trusted, then the per-repetition
 table:
 
 ```text
-GenAIInferenceSim 1.0.1 | experiment "loaded-7b-memory-pressure"
+Docket 1.0.1 | experiment "loaded-7b-memory-pressure"
 ------------------------------------------------------------------------------
 simulated duration   : 30.000 s per repetition
 repetitions          : 3, seed 1
@@ -561,11 +561,18 @@ scenario per trace and a reconciliation script that compares the run with the re
 | Key | Default | Meaning |
 |---|---|---|
 | `policy.admission` | `unlimited` | One policy, or a comma-separated chain applied in order |
+| `policy.admission.class` | unset | Fully qualified class of a custom admission policy; wins over `policy.admission` |
 | `policy.queueLimit.maxWaitingRequests` | required when used | Cap on queued requests per replica |
 | `policy.cacheCapacity.headroomTokens` | `0` | Tokens kept free beyond the predicted context |
 | `policy.predictedDeadline.tolerance` | `1` | Fraction by which the predicted wait may exceed the slack |
 | `policy.routing` | `least-queued` | `round-robin`, `least-queued` or `least-predicted-work` |
+| `policy.routing.class` | unset | Fully qualified class of a custom routing policy; wins over `policy.routing` |
 | `policy.scheduling` | `fcfs` | `fcfs`, `priority`, `shortest-expected-first` or `shortest-oracle-first` |
+| `policy.scheduling.class` | unset | Fully qualified class of a custom scheduling policy; wins over `policy.scheduling` |
+
+A custom class is loaded from the classpath of the running simulation, so an external policy needs
+no patch to the simulator: implement the interface, add the directory holding it to `java -cp` next
+to the jar, and name it in the scenario. The class needs a public no-argument constructor.
 
 ### `cost.*`
 
@@ -585,9 +592,9 @@ order and the first refusal wins.
 | Policy | Rule | Refusal reason |
 |---|---|---|
 | `unlimited` | Always admits | none |
-| `queue-limit` | Refuses when every replica already holds `maxWaitingRequests` queued requests | `ADMISSION_QUEUE_FULL` |
-| `cache-capacity` | Refuses unless some replica can hold the predicted final context plus the headroom | `ADMISSION_NO_CACHE_CAPACITY` |
-| `predicted-deadline` | Refuses when the least pending work exceeds the TTFT slack times `1 + tolerance` | `ADMISSION_DEADLINE_INFEASIBLE` |
+| `queue-limit` | Refuses once the replicas together hold `maxWaitingRequests` queued requests | `admission_queue_limit` |
+| `cache-capacity` | Refuses unless some replica can hold the predicted final context plus the headroom | `admission_no_cache_capacity` |
+| `predicted-deadline` | Refuses when the least pending work exceeds the TTFT slack times `1 + tolerance` | `admission_deadline_infeasible` |
 
 `predicted-deadline` is deliberately conservative: the pending work is a lower bound on the wait,
 because running sequences keep decoding while the request waits.
@@ -617,10 +624,16 @@ Scheduling orders the waiting queue of one replica.
 The last one is an oracle baseline: it shows what a perfect length predictor would buy, and it is
 not deployable.
 
+Writing your own is supported without touching the engine. The nine worked examples under
+[examples/](examples/README.md) each define a policy, pair it with the built-in baseline on the same
+workload and report what changed. They cover deadline-aware ordering, class reservations, class
+objectives, session affinity, weighted load, composite admission, abort on miss, length-aware
+routing under saturation and a hand-written template clone of `fcfs`.
+
 ## Command line
 
 ```text
-usage: genaism [options] <scenario.properties>
+usage: docket [options] <scenario.properties>
 
   -c, --scenario FILE     the scenario to run
   -o, --output DIR        override experiment.outputDir
@@ -636,15 +649,15 @@ Examples:
 
 ```bash
 # three repetitions, artifacts under results/loaded
-java -jar target/genai-inference-sim-1.0.1.jar \
+java -jar target/docket-1.0.1.jar \
     -r 3 -o results scenarios/loaded-7b-memory-pressure.properties
 
 # change one knob without editing the file
-java -jar target/genai-inference-sim-1.0.1.jar \
+java -jar target/docket-1.0.1.jar \
     -D replica.maxBatchSize=8 scenarios/loaded-7b-memory-pressure.properties
 
 # quiet run for scripts
-java -jar target/genai-inference-sim-1.0.1.jar -q scenarios/single-gpu-poisson.properties
+java -jar target/docket-1.0.1.jar -q scenarios/single-gpu-poisson.properties
 ```
 
 Exit codes:
@@ -817,8 +830,8 @@ the same values with the same column order.
 The scenarios in this README were produced with:
 
 ```bash
-java -jar target/genai-inference-sim-1.0.1.jar -r 3 scenarios/single-gpu-poisson.properties
-java -jar target/genai-inference-sim-1.0.1.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
+java -jar target/docket-1.0.1.jar -r 3 scenarios/single-gpu-poisson.properties
+java -jar target/docket-1.0.1.jar -r 3 scenarios/loaded-7b-memory-pressure.properties
 ```
 
 on a Windows host with a JDK 23 runtime, seed 1, with the committed build. The paper reports the
@@ -848,8 +861,9 @@ The suite runs on JUnit 5 against the real engine, with no stubs and no simulate
 | Invariant | 2 | Nineteen assertions re-derive the accounting from the exposed counters of a finished run |
 | Regression | 3 | The two scenarios are pinned to freshly measured goldens |
 | Command line | 16 | Exit codes, `-D` overrides, artifact layout, the unused-key warning, JSON quoting |
+| Examples | 35 | The class-loading hook and its three error paths, each example policy against a hand-built load snapshot, and every example scenario loading and running |
 
-Total: 105 tests. A full run takes about ten seconds on the development machine.
+Total: 140 tests. A full run takes about fifteen seconds on the development machine.
 
 The invariant layer is the important one for published results. The result object verifies itself
 when it is built: every arrived request is terminal exactly once, completed requests do not
@@ -862,12 +876,16 @@ changing the numbers still fails the build.
 ## Project layout
 
 ```text
-GenAIInferenceSim/
+Docket/
 ├── pom.xml
 ├── README.md
 ├── LICENSE                       GPL-3.0
 ├── scenarios/                    the two committed, runnable scenarios
-├── examples/real-traces/         public trace windows, scenarios, converter and replay check
+├── examples/                     nine policy examples, their scenarios, tests and results
+│   ├── README.md                 the index and the measured headline of each example
+│   ├── common.sh                 classpath and run helpers shared by the example scripts
+│   ├── data/                     the generated SLA and session workloads
+│   └── real-traces/              public trace windows, scenarios, converter and replay check
 ├── scripts/
 │   ├── run_sweeps.sh             the 19-configuration sweep driver
 │   └── plot_sweeps.py            figures from the sweep output
@@ -875,7 +893,7 @@ GenAIInferenceSim/
 ├── configs/                      reserved for reusable fragments (hardware, models)
 ├── results/                      reserved for published artifact sets
 └── src/
-    ├── main/java/com/mechalikh/genaism/
+    ├── main/java/com/mechalikh/docket/
     │   ├── cli/                  argument parsing and exit codes
     │   ├── config/               Settings, Scenario and TraceLoader
     │   ├── domain/               request, model, device, provenance, states
@@ -886,20 +904,26 @@ GenAIInferenceSim/
     │   ├── power/                two-level power integration
     │   ├── metrics/              per-request recording, samples, percentiles, SLO
     │   └── experiment/           runner, run result and report
-    └── test/java/com/mechalikh/genaism/
+    └── test/java/com/mechalikh/docket/
         ├── unit/ integration/ invariant/ regression/ cli/ support/
+        └── examples/             the nine example policies and their scenarios
 ```
 
 `configs/` and `results/` are placeholders kept in the tree for the next stage; they are not used
 by the build or by the tests. `examples/real-traces/` is self-contained and is driven by its own
-scripts, not by Maven.
+scripts, not by Maven. The policy classes of `examples/` are compiled into the test classpath by
+`build-helper-maven-plugin`, so they are exercised by `mvn test` and never enter the jar.
 
 ## Extending the simulator
 
-**A new policy.** Implement `AdmissionPolicy`, `RoutingPolicy` or `SchedulingPolicy`, then add one
-`case` to the matching factory method in `Scenario` and one line to its error message. The policy
-receives the request and the load snapshot, and returns a decision; it must not mutate engine
-state.
+**A new policy.** Implement `AdmissionPolicy`, `RoutingPolicy` or `SchedulingPolicy` with a public
+no-argument constructor, put the compiled class on the runtime classpath and name it in
+`policy.admission.class`, `policy.routing.class` or `policy.scheduling.class`. No dependency on the
+simulator's internals is needed beyond the interface and the `ReplicaLoad` snapshot. The policy
+receives the request and the load snapshot and returns a decision; it must not mutate engine state.
+The [examples](examples/README.md) show the full loop, tests included. A built-in policy that
+belongs in the engine still needs one `case` in the matching factory method in `Scenario` and one
+clause in its error message.
 
 **A new workload pattern.** Add a constant to `WorkloadPlan.Pattern`, extend `validate()` with its
 required settings, extend the arrival drawing in `WorkloadSource`, and extend `describe()` so the
@@ -935,18 +959,18 @@ simulator, not about a deployment.
 
 ## License and citation
 
-GenAIInferenceSim is released under the GNU General Public License v3.0, the same license as the
+Docket is released under the GNU General Public License v3.0, the same license as the
 PureEdgeSim engine it builds on. Every source file carries the GPL header.
 
 If you use it in academic work, cite the repository and the engine:
 
 ```bibtex
-@software{mechalikh_genaiinferencesim,
+@software{mechalikh_docket,
   author  = {Mechalikh, Charafeddine},
-  title   = {{GenAIInferenceSim}: a discrete-event simulator for generative AI inference serving},
+  title   = {{Docket}: a discrete-event simulator for generative AI inference serving},
   year    = {2026},
   version = {1.0.1},
-  url     = {https://github.com/CharafeddineMechalikh/GenAIInferenceSim},
+  url     = {https://github.com/CharafeddineMechalikh/Docket},
   license = {GPL-3.0}
 }
 ```

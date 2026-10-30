@@ -1,0 +1,9 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex01-edf,1,batch,ttft,416,416,416,381,0.9158653846153846
+ex01-edf,1,batch,e2e,416,416,416,416,1.0
+ex01-edf,1,batch,tpot,416,416,416,416,1.0
+ex01-edf,1,batch,all,416,416,416,381,0.9158653846153846
+ex01-edf,1,interactive,ttft,184,184,184,177,0.9619565217391305
+ex01-edf,1,interactive,e2e,184,184,184,184,1.0
+ex01-edf,1,interactive,tpot,184,184,184,184,1.0
+ex01-edf,1,interactive,all,184,184,184,177,0.9619565217391305

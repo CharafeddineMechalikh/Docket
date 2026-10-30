@@ -1,0 +1,9 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex01-priority,1,batch,ttft,416,416,416,379,0.9110576923076923
+ex01-priority,1,batch,e2e,416,416,416,416,1.0
+ex01-priority,1,batch,tpot,416,416,416,416,1.0
+ex01-priority,1,batch,all,416,416,416,379,0.9110576923076923
+ex01-priority,1,interactive,ttft,184,184,184,181,0.9836956521739131
+ex01-priority,1,interactive,e2e,184,184,184,184,1.0
+ex01-priority,1,interactive,tpot,184,184,184,184,1.0
+ex01-priority,1,interactive,all,184,184,184,181,0.9836956521739131

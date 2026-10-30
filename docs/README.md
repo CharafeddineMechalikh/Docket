@@ -1,4 +1,4 @@
-# GenAIInferenceSim documentation
+# Docket documentation
 
 The [README](../README.md) is the tour. These pages are the reference: each one covers a
 mechanism in full, states the rules the code enforces, and gives the numbers or commands that
@@ -10,8 +10,9 @@ check the claim.
 | [Configuration](configuration.md) | Every setting, its default, its validation rule and its unit | You are writing or debugging a scenario |
 | [Cost model](cost-model.md) | The roofline formulas, the binding term, the power integral, the calibration contract | You are reasoning about a latency or an energy number |
 | [Memory and caching](memory.md) | How device memory becomes a KV pool, how blocks are reserved, what preemption does | A run shows cache refusals, preemption or a batch ceiling |
-| [Policies](policies.md) | Admission, routing and scheduling rules, including the oracle modes | You are comparing scheduling or admission strategies |
+| [Policies](policies.md) | Admission, routing and scheduling rules, the oracle modes and the class-loading hook for a policy outside the engine | You are comparing scheduling or admission strategies, or writing your own |
 | [Metrics and artifacts](metrics.md) | Definitions, SLO accounting, CSV schemas, console layout, invariants | You are reading or plotting a result |
+| [Worked examples](../examples/README.md) | Nine policies, each with its baseline, scenario, tests and measured effect | You want a template for your own admission, routing or scheduling rule |
 | [Trace replay](traces.md) | The trace format, time scaling, and how a public trace maps onto it | You want to replay real traffic |
 | [Real trace replays](../examples/real-traces/README.md) | The four committed public windows, their conversions, the measured results and the limits | You want evidence under measured traffic, or you are re-running the replays |
 | [Reproducing results](reproducing.md) | Build, test, sweeps, determinism, environment | You are checking a published number |
@@ -23,7 +24,7 @@ Three reading paths:
   meaningful.
 - **Scenario author.** README, then [configuration](configuration.md), then [metrics](metrics.md).
 - **Contributor.** [Architecture](architecture.md), then [policies](policies.md), then the tests
-  under `src/test/java/com/mechalikh/genaism/`.
+  under `src/test/java/com/mechalikh/docket/`.
 
 Every page keeps the same rule as the code: a synthetic input is labelled synthetic, a measured
 input is labelled measured, and nothing is presented as calibrated until it is.

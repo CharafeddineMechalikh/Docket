@@ -2,7 +2,8 @@
 
 Three decisions shape a run: whether a request enters the service (**admission**), which replica
 receives it (**routing**), and which queued request starts next (**scheduling**). Each is a small
-strategy class selected by name in the scenario file, so a sweep can hold everything else fixed.
+strategy class selected in the scenario file by name, or by fully qualified class name for a policy
+that lives outside the engine, so a sweep can hold everything else fixed.
 
 ## Order of decisions
 
@@ -172,12 +173,53 @@ See [memory](memory.md#victim-orders) for the three orders and their trade-offs.
 preemption answer different questions: admission decides whether a request ever enters, preemption
 decides which running request pays when the cache fills later.
 
+## Writing a policy outside the engine
+
+A policy does not have to live in the simulator. Implement the interface with a public no-argument
+constructor, put the compiled class on the classpath of the run, and name it in the scenario:
+
+```properties
+policy.scheduling.class=com.example.MyScheduler
+```
+
+The three keys are `policy.admission.class`, `policy.routing.class` and `policy.scheduling.class`.
+A class key wins over the matching name key, so a scenario can keep `policy.admission=queue-limit`
+as the documented baseline and override it with `-D`:
+
+```bash
+java -cp "target/docket-1.0.1.jar:target/lib/*:my-policies" com.mechalikh.docket.cli.Main \
+    -D policy.scheduling.class=com.example.MyScheduler scenarios/loaded-7b-memory-pressure.properties
+```
+
+On Windows the classpath separator is `;`. `mvn package` copies the runtime dependencies into
+`target/lib`, and `examples/common.sh` builds the same classpath for the example scripts. The class
+is loaded from the running JVM's classpath, so adding a directory next to the jar is enough, and no
+change to the engine is needed. Each failure names the setting and the class, rather than surfacing
+a stack trace from inside the simulator:
+
+| Mistake | Message |
+|---|---|
+| Class not found | `The setting "policy.scheduling.class" names "…", which is not on the classpath; add the directory holding it to java -cp` |
+| Wrong interface | `The setting "policy.scheduling.class" names "…", which does not implement SchedulingPolicy` |
+| No no-arg constructor | `The class "…" named by "policy.scheduling.class" needs a public no-argument constructor` |
+
+A custom admission policy replaces the whole chain, because `policy.admission.class` builds one
+policy rather than a list; a chain can be written as a composite in the custom class.
+
+The nine worked examples under [examples/](../examples/README.md) are the reference: each defines a
+policy this way, pairs it with a built-in baseline on the same workload, runs both and reports the
+measured difference. Their tests show the three error paths above and fix each policy's decision on
+a hand-built load snapshot.
+
 ## Extending a policy
+
+To add a policy to the engine itself, rather than externally:
 
 1. Implement the interface (`AdmissionPolicy`, `RoutingPolicy` or `SchedulingPolicy`).
 2. Give it a stable `name()`, a `describe()` that names its parameters, and a truthful
    `usesOracleInformation()`.
-3. Add one `case` to the factory in `Scenario` and one clause to its error message.
+3. Add one `case` to the factory in `Scenario` and one clause to its error message, or expose it
+   through a `.class` key like the ones above.
 4. Add a unit test that fixes the decision on a hand-built load, and one integration run that shows
    the policy changes a known aggregate.
 

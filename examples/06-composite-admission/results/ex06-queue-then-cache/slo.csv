@@ -1,0 +1,9 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex06-queue-then-cache,1,batch,ttft,416,371,416,371,0.8918269230769231
+ex06-queue-then-cache,1,batch,e2e,416,371,416,371,0.8918269230769231
+ex06-queue-then-cache,1,batch,tpot,416,371,371,371,1.0
+ex06-queue-then-cache,1,batch,all,416,371,416,371,0.8918269230769231
+ex06-queue-then-cache,1,interactive,ttft,184,179,184,178,0.967391304347826
+ex06-queue-then-cache,1,interactive,e2e,184,179,184,179,0.9728260869565217
+ex06-queue-then-cache,1,interactive,tpot,184,179,179,179,1.0
+ex06-queue-then-cache,1,interactive,all,184,179,184,178,0.967391304347826

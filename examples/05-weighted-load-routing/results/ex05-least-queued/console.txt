@@ -1,0 +1,43 @@
+Docket development build | experiment "ex05-least-queued"
+------------------------------------------------------------------------------
+simulated duration   : 80.000 s per repetition
+repetitions          : 1, seed 1
+model                : sla-mix (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 4
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : trace, model sla-mix
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            600       600   1.0000    0.0896    3.9616   20.9193   0.02304     0.9317   3708.3 158842.91
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            600    0.8798    0.0896    2.7099    3.1956    3.9616    4.7583         n/a
+e2e_s             600    9.6510    9.5479   18.3911   19.7273   20.9193   21.5442         n/a
+tpot_s            600    0.0176    0.0195    0.0213    0.0216    0.0230    0.0235         n/a
+mean_itl_s        600    0.0176    0.0195    0.0213    0.0216    0.0230    0.0235         n/a
+queueing_s        600    0.8370    0.0376    2.6477    3.1592    3.9019    4.6769         n/a
+prefill_s         600    0.0428    0.0411    0.0814    0.0822    0.0865    0.0881         n/a
+decode_s          600    0.3234    0.3042    0.5912    0.6656    0.9408    1.6610         n/a
+
+mean over 1 repetition(s): completed 600.0 +- 0.0, goodput 0.9317 +- 0.0000, tokens/s 3708.3 +- 0.0, utilisation 0.687 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+interactive          171    0.7602    1.0000    1.0000    0.7602
+batch                429    1.0000    1.0000    1.0000    1.0000
+
+replica 0 (sla-mix on gpu-80g-1): 694 prefill steps, 3970 iterations, batch mean 19.07 peak 32, preemptions 0, cache refusals 0, stalls 0, peak cache 74.4% of 8059 blocks, utilisation 70.3%, energy 40549.327 J
+replica 1 (sla-mix on gpu-80g-2): 633 prefill steps, 3603 iterations, batch mean 19.88 peak 32, preemptions 0, cache refusals 0, stalls 0, peak cache 81.0% of 8059 blocks, utilisation 66.2%, energy 38400.709 J
+replica 2 (sla-mix on gpu-80g-3): 658 prefill steps, 3772 iterations, batch mean 19.28 peak 32, preemptions 0, cache refusals 0, stalls 0, peak cache 76.0% of 8059 blocks, utilisation 68.6%, energy 39676.801 J
+replica 3 (sla-mix on gpu-80g-4): 646 prefill steps, 3825 iterations, batch mean 19.87 peak 32, preemptions 0, cache refusals 0, stalls 0, peak cache 77.7% of 8059 blocks, utilisation 69.6%, energy 40216.075 J
+
+Artifacts written under examples\05-weighted-load-routing\results/ex05-least-queued

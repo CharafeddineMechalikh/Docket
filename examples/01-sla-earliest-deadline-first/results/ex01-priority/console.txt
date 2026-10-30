@@ -1,0 +1,40 @@
+Docket development build | experiment "ex01-priority"
+------------------------------------------------------------------------------
+simulated duration   : 220.000 s per repetition
+repetitions          : 1, seed 1
+model                : sla-mix (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 1
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=priority
+workload             : trace, model sla-mix
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            600       600   1.0000    6.8184   15.9677   34.7522   0.02452     0.9333   1287.0 135581.88
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            600    5.9268    6.8184   13.3259   15.3059   15.9677   17.1575         n/a
+e2e_s             600   15.2837   16.9117   28.6075   30.9754   34.7522   37.6641         n/a
+tpot_s            600    0.0198    0.0205    0.0221    0.0226    0.0245    0.0279         n/a
+mean_itl_s        600    0.0198    0.0205    0.0221    0.0226    0.0245    0.0279         n/a
+queueing_s        600    5.8849    6.7544   13.2948   15.2516   15.9205   17.1183         n/a
+prefill_s         600    0.0420    0.0388    0.0814    0.0832    0.0871    0.0880         n/a
+decode_s          600    0.2775    0.2653    0.5316    0.5641    0.7147    1.1216         n/a
+
+mean over 1 repetition(s): completed 600.0 +- 0.0, goodput 0.9333 +- 0.0000, tokens/s 1287.0 +- 0.0, utilisation 0.871 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+batch                416    0.9111    1.0000    1.0000    0.9111
+interactive          184    0.9837    1.0000    1.0000    0.9837
+
+replica 0 (sla-mix on gpu-80g): 2586 prefill steps, 10315 iterations, batch mean 27.39 peak 32, preemptions 0, cache refusals 0, stalls 0, peak cache 84.0% of 8059 blocks, utilisation 87.1%, energy 135581.878 J
+
+Artifacts written under examples\01-sla-earliest-deadline-first\results/ex01-priority

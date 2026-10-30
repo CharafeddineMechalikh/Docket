@@ -1,0 +1,40 @@
+Docket development build | experiment "ex07-abort-on"
+------------------------------------------------------------------------------
+simulated duration   : 220.000 s per repetition
+repetitions          : 1, seed 1
+model                : sla-mix (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 1
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : trace, model sla-mix
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            600       569   0.9483    8.9188   15.2561   34.2485   0.02418     0.7200   1277.5 135191.86
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            595    8.0959    8.9188   14.0508   14.4983   15.2561   15.8337         n/a
+e2e_s             569   17.6207   17.5484   28.6180   30.5740   34.2485   35.9350         n/a
+tpot_s            595    0.0199    0.0207    0.0223    0.0225    0.0242    0.0268         n/a
+mean_itl_s        595    0.0199    0.0207    0.0223    0.0225    0.0242    0.0268         n/a
+queueing_s        600    7.9866    8.8724   13.9966   14.4475   15.2160   15.7511         n/a
+prefill_s         595    0.0422    0.0391    0.0814    0.0833    0.0871    0.0880         n/a
+decode_s          595    0.2789    0.2681    0.5354    0.5690    0.7164    1.0646         n/a
+
+mean over 1 repetition(s): completed 569.0 +- 0.0, goodput 0.7200 +- 0.0000, tokens/s 1277.5 +- 0.0, utilisation 0.868 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+batch                416    0.9736    1.0000    1.0000    0.9736
+interactive          184    0.1467    0.8315    1.0000    0.1467
+
+replica 0 (sla-mix on gpu-80g): 2579 prefill steps, 10232 iterations, batch mean 27.41 peak 32, preemptions 0, cache refusals 0, stalls 0, peak cache 83.7% of 8059 blocks, utilisation 86.8%, energy 135191.858 J
+
+Artifacts written under examples\07-deadline-abort\results/ex07-abort-on

@@ -1,0 +1,9 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex02-reservation,1,batch,ttft,416,371,416,371,0.8918269230769231
+ex02-reservation,1,batch,e2e,416,371,416,371,0.8918269230769231
+ex02-reservation,1,batch,tpot,416,371,371,371,1.0
+ex02-reservation,1,batch,all,416,371,416,371,0.8918269230769231
+ex02-reservation,1,interactive,ttft,184,184,184,175,0.9510869565217391
+ex02-reservation,1,interactive,e2e,184,184,184,184,1.0
+ex02-reservation,1,interactive,tpot,184,184,184,184,1.0
+ex02-reservation,1,interactive,all,184,184,184,175,0.9510869565217391

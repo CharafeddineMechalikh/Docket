@@ -1,0 +1,22 @@
+experiment  ex08-priority, 80.0 s, seed 1, 1 repetition(s)
+model       sla-mix: 7000000000 parameters, 32 layers, hidden 4096, kv 4096 scalars/token, fp16, context 8192 tokens [synthetic]
+device      gpu-80g: 80.0 GiB, 3350 GB/s, achieved [fp16] 700.0 TFLOPS [synthetic]
+deployment  4 replica(s), batch <= 32, prefill chunk 512 tokens, block 16 tokens, preemption newest-first, deadline abort off
+cost        roofline-analytical [synthetic, uncalibrated]
+workload    trace of 600 rows; lengths: input=trace, output=trace; prediction=trace-observed
+policies    admission unlimited, routing least-queued, scheduling priority
+
+# Provenance of the weakest input: synthetic
+# Cost model: roofline-analytical, provenance synthetic, calibrated=no, source=none
+# WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+# WARNING the achieved throughput of the device is used, never its published peak
+# WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+# WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+# Trace: trace sla-mix-dense.csv, 600 rows read, 600 replayed
+# Pooled ttft_s: n=600 mean=0.715861 p99=3.736200
+# Pooled e2e_s: n=600 mean=9.497541 p99=21.364279
+# Pooled tpot_s: n=600 mean=0.017553 p99=0.023209
+# Pooled mean_itl_s: n=600 mean=0.017553 p99=0.023209
+# Pooled queueing_s: n=600 mean=0.673047 p99=3.677491
+# Pooled prefill_s: n=600 mean=0.042815 p99=0.086499
+# Pooled decode_s: n=600 mean=0.323862 p99=0.985944

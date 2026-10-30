@@ -1,0 +1,42 @@
+Docket development build | experiment "ex04-affinity"
+------------------------------------------------------------------------------
+simulated duration   : 35.000 s per repetition
+repetitions          : 1, seed 1
+model                : sla-mix (7000.0M parameters, none), provenance synthetic
+device               : gpu-80g, provenance synthetic
+replicas             : 4
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=session-affinity, scheduling=fcfs
+workload             : trace, model sla-mix
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            400       400   1.0000    0.0193    0.0386    1.1840   0.00703     1.0000   1298.3  39642.63
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            400    0.0197    0.0193    0.0251    0.0300    0.0386    0.0513         n/a
+e2e_s             400    0.6772    0.6815    1.0755    1.1300    1.1840    1.2639         n/a
+tpot_s            400    0.0058    0.0059    0.0065    0.0068    0.0070    0.0074         n/a
+mean_itl_s        400    0.0058    0.0059    0.0065    0.0068    0.0070    0.0074         n/a
+queueing_s        400    0.0037    0.0026    0.0084    0.0143    0.0215    0.0330         n/a
+prefill_s         400    0.0160    0.0156    0.0209    0.0209    0.0209    0.0209         n/a
+decode_s          400    0.1096    0.0910    0.1734    0.2493    0.5643    0.7103         n/a
+
+mean over 1 repetition(s): completed 400.0 +- 0.0, goodput 1.0000 +- 0.0000, tokens/s 1298.3 +- 0.0, utilisation 0.359 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+interactive          400    1.0000    1.0000    1.0000    1.0000
+
+replica 0 (sla-mix on gpu-80g-1): 189 prefill steps, 2239 iterations, batch mean 5.29 peak 10, preemptions 0, cache refusals 0, stalls 0, peak cache 6.9% of 8059 blocks, utilisation 36.0%, energy 9947.595 J
+replica 1 (sla-mix on gpu-80g-2): 189 prefill steps, 2175 iterations, batch mean 5.43 peak 12, preemptions 0, cache refusals 0, stalls 0, peak cache 8.5% of 8059 blocks, utilisation 35.3%, energy 9781.058 J
+replica 2 (sla-mix on gpu-80g-3): 180 prefill steps, 2345 iterations, batch mean 4.72 peak 10, preemptions 0, cache refusals 0, stalls 0, peak cache 7.4% of 8059 blocks, utilisation 36.8%, energy 10130.445 J
+replica 3 (sla-mix on gpu-80g-4): 162 prefill steps, 2281 iterations, batch mean 4.53 peak 11, preemptions 0, cache refusals 0, stalls 0, peak cache 7.7% of 8059 blocks, utilisation 35.3%, energy 9783.528 J
+
+Artifacts written under examples\04-session-affinity\results/ex04-affinity

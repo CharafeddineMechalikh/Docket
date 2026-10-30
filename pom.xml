@@ -4,11 +4,11 @@
 	<modelVersion>4.0.0</modelVersion>
 
 	<groupId>io.github.charafeddinemechalikh</groupId>
-	<artifactId>genai-inference-sim</artifactId>
+	<artifactId>docket</artifactId>
 	<version>1.0.1</version>
-	<name>GenAIInferenceSim</name>
+	<name>Docket</name>
 	<description>Research-grade discrete-event simulator for generative AI (LLM) inference serving, built on the PureEdgeSim engine</description>
-	<url>https://github.com/CharafeddineMechalikh/GenAIInferenceSim</url>
+	<url>https://github.com/CharafeddineMechalikh/Docket</url>
 
 	<licenses>
 		<license>
@@ -22,7 +22,7 @@
 		<maven.compiler.release>11</maven.compiler.release>
 		<pureedgesim.version>6.0</pureedgesim.version>
 		<junit.version>5.8.2</junit.version>
-		<mainClass>com.mechalikh.genaism.cli.Main</mainClass>
+		<mainClass>com.mechalikh.docket.cli.Main</mainClass>
 	</properties>
 
 	<build>
@@ -95,6 +95,34 @@
 				<configuration>
 					<mainClass>${mainClass}</mainClass>
 				</configuration>
+			</plugin>
+
+			<!-- The policies the examples write are compiled as test sources: they are part of the
+			test run, they are exercised by the example tests, and they never enter the jar, so a
+			user copies one file rather than inheriting an example into the artifact. -->
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>build-helper-maven-plugin</artifactId>
+				<version>3.2.0</version>
+				<executions>
+					<execution>
+						<id>example-policy-sources</id>
+						<phase>generate-test-sources</phase>
+						<goals>
+							<goal>add-test-source</goal>
+						</goals>
+						<configuration>
+							<sources>
+								<source>examples/01-sla-earliest-deadline-first/src/main/java</source>
+								<source>examples/02-sla-admission-protection/src/main/java</source>
+								<source>examples/03-class-fair-share/src/main/java</source>
+								<source>examples/04-session-affinity/src/main/java</source>
+								<source>examples/05-weighted-load-routing/src/main/java</source>
+								<source>examples/09-custom-policy-template/src/main/java</source>
+							</sources>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 
 			<!-- Every public type and member carries Javadoc, so the API pages are complete.

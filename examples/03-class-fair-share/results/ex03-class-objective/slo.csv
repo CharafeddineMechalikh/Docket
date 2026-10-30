@@ -1,0 +1,9 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex03-class-objective,1,interactive,ttft,171,171,171,156,0.9122807017543859
+ex03-class-objective,1,interactive,e2e,171,171,171,171,1.0
+ex03-class-objective,1,interactive,tpot,171,171,171,171,1.0
+ex03-class-objective,1,interactive,all,171,171,171,156,0.9122807017543859
+ex03-class-objective,1,batch,ttft,429,429,429,429,1.0
+ex03-class-objective,1,batch,e2e,429,429,429,429,1.0
+ex03-class-objective,1,batch,tpot,429,429,429,429,1.0
+ex03-class-objective,1,batch,all,429,429,429,429,1.0
