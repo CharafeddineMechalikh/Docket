@@ -48,7 +48,16 @@ The loader is strict about consistency, not only syntax:
 - a non-trace workload needs a prompt distribution and either an output distribution or a positive
   `outputToInputRatio`;
 - an experiment runs at least one repetition, a duration that is positive and finite, a batch of at
-  least one sequence, and a block of at least one token.
+  least one sequence, and a block of at least one token;
+- a deployment uses one device form: `devices` with per-profile blocks, or the flat `device.*`
+  block, never both;
+- every device profile declares an achieved throughput for the served precision, and every entry of
+  `replicas` names a profile that `devices` declares;
+- a disaggregated deployment (`deployment.disaggregated=true`) states its shape with
+  `deployment.prefillReplicas` and `deployment.decodeReplicas`, needs at least one of each, and is
+  refused if it also sets `replicas` or `replicas.count`;
+- a bearer a device names exists and has a positive capacity, and its latency and payload sizes are
+  not negative.
 
 ## Units
 
@@ -56,6 +65,7 @@ The loader is strict about consistency, not only syntax:
 |---|---|
 | Memory | Binary: KiB, MiB, GiB (`device.memoryGiB`, `replica.runtimeOverheadGiB`) |
 | Bandwidth | Decimal: GB/s |
+| Link capacity | Decimal: Mbps, 1e6 bit/s, converted to bytes once at the profile |
 | Throughput | Decimal: TFLOPS |
 | Time | Seconds, except keys whose name ends in `Ms`, which take milliseconds |
 | Power | Watts |
@@ -137,6 +147,37 @@ device.peakTFLOPS.fp16=150
 Only the first line participates in a latency. The second is a label for a reader who wants to see
 how far the achieved figure sits below the published one.
 
+### Several machines: `devices` and `device.<profile>.*`
+
+A deployment of unlike hardware lists its machines by profile name and reads each one from its own
+block:
+
+```properties
+devices=phone,server
+device.phone.memoryGiB=12
+device.phone.memoryBandwidthGBs=68
+device.phone.achievedTFLOPS.fp16=0.045
+device.phone.link=cellular
+device.server.memoryGiB=24
+device.server.memoryBandwidthGBs=700
+device.server.achievedTFLOPS.fp16=100
+```
+
+| Key | Default | Rule |
+|---|---|---|
+| `devices` | empty | Comma-separated profile names, each used at least once; empty keeps the flat form above |
+| `device.<profile>.id` | the profile name | Optional here, required in the flat form; only needed to rename a machine in the artifacts |
+| `device.<profile>.link` | empty | Name of the `link.<name>` block its clients reach it through |
+
+Every other key of the flat table is read the same way under the profile prefix, and each profile is
+checked on its own: a phone that declares no achieved throughput for the served precision stops the
+load with the failing key named. The two forms do not mix, because a deployment that read some
+figures from a flat block and others from a profile would report a device no file states; setting
+`devices` alongside a flat `device.id` is refused, and so is listing one profile twice, which is
+what `replicas` is for.
+
+`config.txt` prints one line per profile, and the console header says how many there are.
+
 ## `replicas.*` and `replica.*`
 
 | Key | Default | Rule |
@@ -155,7 +196,134 @@ All replicas share the same specification. Their identifiers are the device id, 
 and so on appended when there is more than one. Two replicas never share one device object,
 because each would size its cache from the whole memory.
 
+### A fleet: `replicas` and `replica.<profile>.*`
+
+`replicas.count` clones one template. A fleet instead names one machine per replica, drawn from the
+profiles `devices` declares, so a phone, a small server and an accelerator node can serve the same
+model side by side:
+
+```properties
+devices=phone,server
+replicas=phone,server,server
+replica.server.maxBatchSize=64
+replica.phone.maxBatchSize=1
+```
+
+| Key | Default | Rule |
+|---|---|---|
+| `replicas` | empty | Comma-separated profile names, one entry per replica; every entry must be in `devices` |
+| `replica.<profile>.maxBatchSize` | the `replica.*` value | At least 1 |
+| `replica.<profile>.maxPrefillChunkTokens` | the `replica.*` value | Positive |
+| `replica.<profile>.allowPreemption` | the `replica.*` value | Boolean |
+| `replica.<profile>.victimOrder` | the `replica.*` value | Same three labels |
+| `replica.<profile>.abortOnDeadlineMiss` | the `replica.*` value | Boolean |
+| `replica.<profile>.tokensPerBlock` | the `replica.*` value | At least 1 |
+| `replica.<profile>.runtimeOverheadGiB` | the `replica.*` value | Zero or more |
+| `replica.<profile>.reservedActivationSlots` | the `replica.*` value | Zero or more |
+
+The batch ceiling and the cache block are per-machine choices rather than per-deployment ones: a
+phone runs one sequence at a time and a server batches dozens, so a fleet that shared one ceiling
+would compare a placement against a deployment nobody runs. A profile may appear more than once,
+which means several machines of that kind; those replicas are numbered `-1`, `-2` and so on, because
+a cache refusal has to say which machine ran out. `replicas` and `replicas.count` together are
+refused rather than resolved by precedence, and an override key outside the eight above is reported
+by name instead of being left at the fleet default.
+
 Booleans accept `true`, `false`, `yes`, `no`, `on`, `off`, `1`, `0`, in any case.
+
+## `deployment.*`: disaggregating prefill from decode
+
+By default every replica runs both phases, which is the colocated deployment above. A scenario can
+instead split the two phases across two pools, so a prompt is prefilled on one set of machines, its
+finished cache crosses an interconnect, and a separate set generates the tokens into a batch no prefill
+ever joins. The feature is opt-in and read entirely from `deployment.*`:
+
+| Key | Default | Rule |
+|---|---|---|
+| `deployment.disaggregated` | `false` | When `true`, the fleet is built from the two counts below instead of `replicas` |
+| `deployment.prefillReplicas` | required when disaggregated | At least 1; clones of the first device profile |
+| `deployment.decodeReplicas` | required when disaggregated | At least 1; clones of the second profile, or the first when only one is declared |
+| `deployment.fabric` | empty | Name of the `link.<name>` block the finished cache crosses; empty hands off instantly |
+
+```properties
+devices=compute,memcard
+device.compute.achievedTFLOPS.fp16=150
+device.compute.memoryBandwidthGBs=700
+device.compute.memoryGiB=24
+device.memcard.achievedTFLOPS.fp16=60
+device.memcard.memoryBandwidthGBs=3350
+device.memcard.memoryGiB=80
+deployment.disaggregated=true
+deployment.prefillReplicas=1
+deployment.decodeReplicas=3
+deployment.fabric=fabric
+link.fabric.capacityMbps=400000
+link.fabric.latencyMs=0.5
+```
+
+The profile that prefills is the first name in `devices` and the one that decodes is the second, so
+the two stages are heterogeneous by construction when two profiles are declared and identical when one
+is. A deployment that sets `deployment.disaggregated` alongside `replicas` or `replicas.count` is
+refused, because the split states its shape with the two counts and a file that set both would describe
+two different machines. Each stage replica carries a role-tagged identifier (`...-p1`, `...-d1`), so a
+split on one machine kind still gives every device a distinct cache budget.
+
+The fabric is the store-and-forward bearer the hand-off charges onto. It reuses the `link.<name>` block
+(see below) for capacity and latency, and moves `cachedTokens x kvBytesPerToken` bytes, the size the
+model's cache arithmetic already knows; the link's own `bytesPerInputToken` plays no part, because the
+payload is a key-value cache rather than a prompt. Leaving `deployment.fabric` empty models an intra-node
+hand-off with no wire, so the first-token time carries only the prefill queue and the transfer. The batch
+ceiling is set per profile (`replica.<profile>.maxBatchSize`) because the two phases want different batch
+shapes. See [the disaggregation example](../examples/13-prefill-decode-disaggregation/README.md) for the
+measured comparison against a colocated fleet at a fixed device budget.
+
+## `link.<name>.*`
+
+A device block that writes `device.<profile>.link=<name>` says that its clients reach it over one
+hop of its own, described by the block `<name>`:
+
+```properties
+device.phone.link=cellular
+link.cellular.capacityMbps=20
+link.cellular.latencyMs=40
+link.cellular.provenance=literature
+link.cellular.note=downlink budget of a macro cell at medium signal quality
+```
+
+| Key | Default | Rule |
+|---|---|---|
+| `link.<name>.capacityMbps` | required | Positive, decimal Mbps; the raw bearer, shared by everything on it |
+| `link.<name>.latencyMs` | `0` | Zero or more, one-way propagation |
+| `link.<name>.bytesPerInputToken` | `4` | Above zero; bytes one prompt token costs on the uplink |
+| `link.<name>.bytesPerOutputToken` | `4` | Above zero; bytes one generated token costs on the downlink |
+| `link.<name>.provenance` | `synthetic` | `synthetic`, `literature` or `measured`, and it counts toward the overall label |
+| `link.<name>.note` | empty | Free text, echoed into the artifacts |
+
+The four byte figures are the whole payload model. A prompt travels as one message of
+`inputTokens x bytesPerInputToken` bytes and an answer as one message of
+`generatedTokens x bytesPerOutputToken` bytes, which is the non-streaming reading of the API and
+the conservative one: a stream that sends each token as it appears empties no earlier. Four bytes
+per token sits near the cost of a token id on a wire that already carries its own framing; a client
+that sends a JSON body with metadata pays more, and says so with the key.
+
+Each direction is a first-in first-out store-and-forward queue, the same rule a `NetworkLink` of
+PureEdgeSim applies to a file transfer: a message starts as soon as the bearer is free, holds it
+for its size divided by the raw capacity, and is readable one propagation time later. Transfers
+queue rather than share the bearer, so congestion shows up as waiting time behind the requests
+ahead, not as a slower service rate for everyone. The two directions are independent, as they are
+on any full-duplex bearer.
+
+Two devices naming the same link hold one queue, because an access point serving three phones is
+one bottleneck and not three independent ones. A scenario that names no bearer at all charges no
+network time and reports the same rows as before the link existed, which is what keeps every figure
+measured before 1.1 comparable.
+
+What the hop costs a request is written in the columns `uplink_s` and `downlink_s`, and the client
+side of the answer is `delivery_time_s`, the device instant plus the return flight. `ttft_s` and
+`e2e_s` are already measured from the release of the request, so the uplink is inside them; the
+separate columns exist to show how much of a slow answer was the wire. See
+[metrics.md](metrics.md) for the rows and [architecture.md](architecture.md) for where the engine
+holds a prompt between the gateway and the replica.
 
 ## `workload.*`
 

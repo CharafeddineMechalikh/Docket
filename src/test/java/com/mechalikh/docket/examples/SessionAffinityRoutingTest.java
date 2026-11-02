@@ -71,7 +71,7 @@ class SessionAffinityRoutingTest {
 	}
 
 	private static ReplicaLoad load(int id, int waiting, int freeCache) {
-		return new ReplicaLoad(id, waiting, 0, freeCache, 1_000_000, waiting);
+		return new ReplicaLoad(id, "device-" + id, "test-tier", 64, waiting, 0, freeCache, 1_000_000, waiting);
 	}
 
 	private static InferenceRequest request(String session) {

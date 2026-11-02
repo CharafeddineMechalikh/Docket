@@ -44,6 +44,11 @@ public enum RequestState {
 	QUEUED,
 	/** The prompt is being processed on a GPU. */
 	PREFILLING,
+	/**
+	 * The key-value cache computed on a prefill instance is crossing the fabric to a decode
+	 * instance. Reachable only when the deployment disaggregates prefill from decode.
+	 */
+	TRANSFERRING,
 	/** Tokens are being generated, one iteration at a time. */
 	DECODING,
 	/** The GPU work was suspended and the cached state was dropped. */
@@ -82,7 +87,7 @@ public enum RequestState {
 	 * @return {@code true} for the non-terminal states after arrival
 	 */
 	public boolean isInSystem() {
-		return this == ADMITTED || this == QUEUED || isRunningOnGpu() || this == PREEMPTED;
+		return this == ADMITTED || this == QUEUED || isRunningOnGpu() || this == PREEMPTED || this == TRANSFERRING;
 	}
 
 	/**
@@ -100,10 +105,21 @@ public enum RequestState {
 			return EnumSet.of(QUEUED, REJECTED, TIMED_OUT, CANCELLED);
 		case QUEUED:
 			// A queued prompt whose whole sequence cannot fit the pool is refused before it starts
-			// prefilling, so the queue can lead straight to a rejection.
-			return EnumSet.of(PREFILLING, REJECTED, TIMED_OUT, CANCELLED);
+			// prefilling, so the queue can lead straight to a rejection. A request transferred in
+			// from a prefill instance is already prefilled, so the queue of a decode instance goes
+			// straight to decoding once its cache is adopted.
+			return EnumSet.of(PREFILLING, DECODING, REJECTED, TIMED_OUT, CANCELLED);
 		case PREFILLING:
-			return EnumSet.of(DECODING, PREEMPTED, COMPLETED, TIMED_OUT, CANCELLED);
+			// Under disaggregation a prefill instance emits no token: its finished cache is handed
+			// to a decode instance instead, so the prefill state can leave for the transfer. When no
+			// decode instance can hold that cache the sequence ends as a capacity refusal, and a
+			// client that stops waiting cancels it mid-prefill, so the prefill state can also leave
+			// for a rejection or a cancellation.
+			return EnumSet.of(DECODING, TRANSFERRING, REJECTED, CANCELLED, PREEMPTED, COMPLETED, TIMED_OUT);
+		case TRANSFERRING:
+			// The cache is in flight on the fabric; on arrival a decode instance adopts it, but a
+			// client that gives up or a deadline that passes ends the request mid-transfer.
+			return EnumSet.of(QUEUED, TIMED_OUT, CANCELLED);
 		case DECODING:
 			return EnumSet.of(DECODING, COMPLETED, PREEMPTED, TIMED_OUT, CANCELLED);
 		case PREEMPTED:

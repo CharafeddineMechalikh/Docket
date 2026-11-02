@@ -1,0 +1,13 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex11-least-predicted-work-fastlink,1,interactive,ttft,78,78,78,78,1.0
+ex11-least-predicted-work-fastlink,1,interactive,e2e,78,78,78,78,1.0
+ex11-least-predicted-work-fastlink,1,interactive,tpot,78,78,78,78,1.0
+ex11-least-predicted-work-fastlink,1,interactive,all,78,78,78,78,1.0
+ex11-least-predicted-work-fastlink,2,interactive,ttft,82,81,82,82,1.0
+ex11-least-predicted-work-fastlink,2,interactive,e2e,82,81,82,81,0.9878048780487805
+ex11-least-predicted-work-fastlink,2,interactive,tpot,82,81,82,82,1.0
+ex11-least-predicted-work-fastlink,2,interactive,all,82,81,82,81,0.9878048780487805
+ex11-least-predicted-work-fastlink,3,interactive,ttft,83,83,83,83,1.0
+ex11-least-predicted-work-fastlink,3,interactive,e2e,83,83,83,83,1.0
+ex11-least-predicted-work-fastlink,3,interactive,tpot,83,83,83,83,1.0
+ex11-least-predicted-work-fastlink,3,interactive,all,83,83,83,83,1.0

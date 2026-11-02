@@ -1,0 +1,13 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex13-colocated,1,interactive,ttft,1455,1422,1455,1454,0.9993127147766323
+ex13-colocated,1,interactive,e2e,1455,1422,1455,1422,0.977319587628866
+ex13-colocated,1,interactive,tpot,1455,1422,1454,1454,1.0
+ex13-colocated,1,interactive,all,1455,1422,1455,1422,0.977319587628866
+ex13-colocated,2,interactive,ttft,1493,1473,1493,1492,0.999330207635633
+ex13-colocated,2,interactive,e2e,1493,1473,1493,1473,0.9866041527126591
+ex13-colocated,2,interactive,tpot,1493,1473,1492,1492,1.0
+ex13-colocated,2,interactive,all,1493,1473,1493,1473,0.9866041527126591
+ex13-colocated,3,interactive,ttft,1446,1426,1446,1446,1.0
+ex13-colocated,3,interactive,e2e,1446,1426,1446,1426,0.9861687413554634
+ex13-colocated,3,interactive,tpot,1446,1426,1446,1446,1.0
+ex13-colocated,3,interactive,all,1446,1426,1446,1426,0.9861687413554634

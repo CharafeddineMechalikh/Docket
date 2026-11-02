@@ -124,6 +124,45 @@ the previous one.
 All three policies filter by feasibility first, so a deployment with uneven cache occupancy routes
 around a full replica even under `round-robin`.
 
+### What the load view exposes
+
+Every routing and admission policy reads the same `ReplicaLoad` snapshot, taken at the instant the
+decision is asked for, never a live handle on the server. The fields it carries are what a custom
+policy can place on:
+
+| Getter | Meaning |
+|---|---|
+| `replicaId()` | The engine identifier, the value returned to choose this replica |
+| `deviceId()` | The machine the replica runs on; distinct for every replica of a fleet |
+| `tier()` | The device family, the `device.<profile>.type` label the scenario declared, for instance `edge-device` |
+| `maxBatchSize()` | The batch ceiling of this replica, a per-machine limit in a heterogeneous fleet |
+| `waitingRequests()` | Requests queued for their prefill in the snapshot |
+| `runningSequences()` | Sequences decoding now, which is the batch size the device was serving |
+| `freeCacheTokens()` | Tokens the cache pool could still hand out |
+| `totalCacheTokens()` | Cache capacity in tokens, so the free tokens read as a fraction |
+| `pendingWorkSeconds()` | Estimated work already promised to the queue, the price the built-in `least-predicted-work` minimises |
+
+`tier()` is what lets a policy see that the machines are not interchangeable. [Example 10](../examples/10-edge-first-placement/README.md)
+orders the families cheapest-first and, in a second policy, releases the preference only while the
+queued work fits the request's first-token budget; both are read-only uses of this snapshot. A
+scenario that declares a single device reports one tier for every replica, so a tier-aware policy
+degrades to a load balancer rather than failing.
+
+The snapshot deliberately carries no access link: a routing decision that had to wait on a bearer
+would make the order of decisions depend on link congestion, so the engine charges the transfer on the
+delivery path instead (see [the access link](architecture.md)). A policy that wants to be bearer-aware
+therefore reasons about the link indirectly. [Example 11](../examples/11-access-link-offloading/README.md)
+offloads by prompt size, using the length of the request as a hand-set proxy for the transfer a
+constrained bearer will add, and measures that the distinction disappears on a fat link.
+
+The same `waitingRequests()` and `runningSequences()` fields, read as a total, let a policy choose the
+busiest replica instead of the least busy one. The built-in `least-queued` spreads traffic to hold
+latency; [Example 12](../examples/12-replica-consolidation/README.md) inverts it to fill one machine's
+batch before opening the next, which amortises the weights and keeps the idle replicas at their idle
+power, and bounds that packing with a fixed batch cap. Both are read-only uses of the snapshot, and
+because a batch ceiling is charged per machine by the scheduler the policy does not have to respect it
+to stay correct.
+
 ## Scheduling
 
 Scheduling returns a comparator over the waiting queue. The engine sorts the queue when it reads
@@ -206,10 +245,11 @@ a stack trace from inside the simulator:
 A custom admission policy replaces the whole chain, because `policy.admission.class` builds one
 policy rather than a list; a chain can be written as a composite in the custom class.
 
-The nine worked examples under [examples/](../examples/README.md) are the reference: each defines a
+The twelve policy examples under [examples/](../examples/README.md) are the reference: each defines a
 policy this way, pairs it with a built-in baseline on the same workload, runs both and reports the
 measured difference. Their tests show the three error paths above and fix each policy's decision on
-a hand-built load snapshot.
+a hand-built load snapshot. A thirteenth example measures a deployment choice instead of a policy,
+prefill/decode disaggregation against colocated serving; see [configuration.md](configuration.md).
 
 ## Extending a policy
 

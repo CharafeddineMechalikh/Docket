@@ -20,15 +20,19 @@ package com.mechalikh.docket.engine;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import com.mechalikh.docket.cost.ExecutionCostModel;
 import com.mechalikh.docket.domain.InferenceRequest;
+import com.mechalikh.docket.domain.ModelProfile;
 import com.mechalikh.docket.domain.OutcomeReason;
 import com.mechalikh.docket.domain.RequestState;
 import com.mechalikh.docket.metrics.RequestRecorder;
+import com.mechalikh.docket.network.AccessLink;
+import com.mechalikh.docket.network.LinkProfile;
 import com.mechalikh.docket.policy.AdmissionDecision;
 import com.mechalikh.docket.policy.AdmissionPolicy;
 import com.mechalikh.docket.policy.ReplicaLoad;
@@ -47,6 +51,12 @@ import com.mechalikh.pureedgesim.simulationengine.SimEntity;
  * outcomes through one method is what makes the invariant "no request is lost and none is
  * counted twice" checkable: a request that arrives is either still inside a replica or recorded
  * with a reason, and the counters of the two sets add up to the arrivals.
+ * <p>
+ * Where the deployment declares an access link, the chosen replica is reached through it: the
+ * request is admitted and routed on the instant its prompt is released, then waits for the bearer
+ * before it enters the queue of that replica. The policies therefore see the clock of the gateway,
+ * which is the clock a real entry point has when it decides, and the time the prompt spends on the
+ * wire is charged to the latency the client measures.
  *
  * @author Charafeddine Mechalikh
  * @since Docket 0.1
@@ -57,11 +67,29 @@ public class InferenceService extends SimEntity {
 	public static final int REQUEST_ARRIVED = 10;
 	/** Tag carrying the instant a client gives up on a request. */
 	public static final int ABANDON_CHECK = 11;
+	/** Tag carrying a prompt that finished crossing the access link of its replica. */
+	public static final int UPLINK_DELIVERED = 12;
+	/** Tag carrying a key-value cache that finished crossing the fabric to a decode replica. */
+	public static final int KV_TRANSFER_DONE = 13;
 
 	/** Model the replicas of this service serve. */
 	protected final String modelId;
+	/** Architecture of the served model, read for the size of a cache hand-off. */
+	protected final ModelProfile model;
 	/** Replicas, in creation order. */
 	protected final List<ReplicaServer> replicas = new ArrayList<>();
+	/** Whether the deployment splits prefill and decode onto different replicas. */
+	protected final boolean disaggregated;
+	/** Replicas that prefill prompts: the prefill instances of a split deployment, or all replicas otherwise. */
+	protected final List<ReplicaServer> prefillStage = new ArrayList<>();
+	/** Replicas that decode sequences handed to them by a prefill instance. */
+	protected final List<ReplicaServer> decodeStage = new ArrayList<>();
+	/**
+	 * Bearer a finished prompt cache crosses to reach a decode replica, {@code null} when the
+	 * hand-off is assumed instant. It is a single ledger shared by every hand-off, because one
+	 * fabric serving the whole deployment is one bottleneck.
+	 */
+	protected final AccessLink fabric;
 	/** Replicas by their device identifier, so that two replicas never share a device silently. */
 	protected final Map<String, ReplicaServer> replicasByDeviceId = new LinkedHashMap<>();
 	/** Policy that decides whether a request enters the service. */
@@ -76,6 +104,19 @@ public class InferenceService extends SimEntity {
 	protected long arrivedRequests;
 	/** Requests recorded, used to check that nothing is lost. */
 	protected long finishedRequests;
+	/**
+	 * Requests whose prompt is still on its way to the replica chosen for them, by request
+	 * identifier, valued with the identifier of that replica. The map is the list of what the
+	 * access links are carrying, so a run that stops at its horizon closes these rows too.
+	 */
+	protected final Map<Long, PendingDestination> uplinkPending = new LinkedHashMap<>();
+	/**
+	 * Requests whose cache is still crossing the fabric to a decode replica, by request identifier,
+	 * valued with the identifier of that replica. The mirror of {@link #uplinkPending}: a run that
+	 * stops at its horizon has to close these too, so they are tracked in their own ledger rather
+	 * than folded into a replica, which holds no request while its cache is in flight.
+	 */
+	protected final Map<Long, PendingDestination> transferPending = new LinkedHashMap<>();
 
 	/**
 	 * Creates the service and its replicas.
@@ -88,10 +129,13 @@ public class InferenceService extends SimEntity {
 	 * @param routingPolicy   the policy that chooses the replica
 	 * @param schedulingPolicy the policy that orders the waiting queue of a replica
 	 * @param recorder        the sink of the rows
+	 * @param fabric          the bearer a prompt cache crosses to reach a decode replica, or
+	 *                        {@code null} when the hand-off is instant and the deployment does not
+	 *                        disaggregate
 	 */
 	public InferenceService(PureEdgeSim simulation, String modelId, List<ReplicaSpec> specs,
 			ExecutionCostModel costModel, AdmissionPolicy admissionPolicy, RoutingPolicy routingPolicy,
-			SchedulingPolicy schedulingPolicy, RequestRecorder recorder) {
+			SchedulingPolicy schedulingPolicy, RequestRecorder recorder, LinkProfile fabric) {
 		super(simulation);
 		if (modelId == null || modelId.isEmpty())
 			throw new IllegalArgumentException("A service needs the identifier of the model it serves");
@@ -100,10 +144,17 @@ public class InferenceService extends SimEntity {
 		if (schedulingPolicy == null)
 			throw new IllegalArgumentException("Service for model \"" + modelId + "\" declares no scheduling policy");
 		this.modelId = modelId;
+		this.model = specs.get(0).getModel();
 		this.admissionPolicy = admissionPolicy;
 		this.routingPolicy = routingPolicy;
 		this.schedulingPolicy = schedulingPolicy;
 		this.recorder = recorder;
+		this.fabric = fabric == null ? null : new AccessLink(fabric);
+		// One queue per declared bearer, shared by every replica that names it, so two devices
+		// behind one access point wait on each other. The ledgers are built here rather than
+		// carried in the scenario because a repetition starts with empty links.
+		Map<LinkProfile, AccessLink> links = new IdentityHashMap<>();
+		boolean split = false;
 		for (ReplicaSpec spec : specs) {
 			spec.validate();
 			if (!spec.getModel().getId().equals(modelId))
@@ -114,9 +165,30 @@ public class InferenceService extends SimEntity {
 				throw new IllegalArgumentException("Device \"" + spec.getDevice().getId() + "\" is already used by replica "
 						+ previous.getId() + " of service \"" + modelId
 						+ "\"; one device holds one replica, otherwise the two would share memory they each count as free");
-			ReplicaServer replica = new ReplicaServer(simulation, this, spec, costModel);
+			AccessLink link = null;
+			if (spec.getLink() != null)
+				link = links.computeIfAbsent(spec.getLink(), AccessLink::new);
+			ReplicaServer replica = new ReplicaServer(simulation, this, spec, costModel, link);
 			replicas.add(replica);
 			replicasByDeviceId.put(spec.getDevice().getId(), replica);
+			if (spec.getRole() == ReplicaSpec.Role.PREFILL)
+				prefillStage.add(replica);
+			else if (spec.getRole() == ReplicaSpec.Role.DECODE)
+				decodeStage.add(replica);
+			if (spec.getRole() != ReplicaSpec.Role.COLOCATED)
+				split = true;
+		}
+		disaggregated = split;
+		if (disaggregated) {
+			// A deployment that split only one of the two phases has nowhere to send a finished
+			// prompt, or nothing to prefill the sequences it decodes, so it cannot run at all.
+			if (prefillStage.isEmpty() || decodeStage.isEmpty())
+				throw new IllegalArgumentException("Service for model \"" + modelId
+						+ "\" disaggregates prefill and decode but declares " + prefillStage.size()
+						+ " prefill and " + decodeStage.size() + " decode replica(s); a split deployment needs at"
+						+ " least one of each");
+		} else {
+			prefillStage.addAll(replicas);
 		}
 	}
 
@@ -147,6 +219,12 @@ public class InferenceService extends SimEntity {
 			break;
 		case ABANDON_CHECK:
 			onAbandonCheck(request);
+			break;
+		case UPLINK_DELIVERED:
+			onUplinkDelivered(request);
+			break;
+		case KV_TRANSFER_DONE:
+			onKvTransferDone(request);
 			break;
 		default:
 			throw new IllegalArgumentException(getClass().getSimpleName() + " received unknown tag " + e.getTag());
@@ -182,14 +260,162 @@ public class InferenceService extends SimEntity {
 		}
 		request.transitionTo(RequestState.ADMITTED);
 		request.setAdmittedTime(simulation.clock());
-		int chosen = routingPolicy.choose(loads(), request);
-		if (chosen < 0) {
+		ReplicaServer target = routeIn(prefillStage, request);
+		if (target == null) {
 			finish(request, RequestState.REJECTED, OutcomeReason.ADMISSION_NO_CACHE_CAPACITY);
 			return;
 		}
-		ReplicaServer target = replicaById(chosen);
+		AccessLink link = target.getLink();
+		if (link == null) {
+			target.enqueue(request);
+			scheduleAbandonChecks(request, target);
+			return;
+		}
+		// The device receives the prompt no earlier than the bearer releases it, so the replica
+		// cannot hold the request yet. A client that stops waiting is still checked from the
+		// instant it released the request: a flight that outlasts the patience of the client ends
+		// the request on the link instead of queueing work nobody asks for any more.
+		if (request.getCancellationTime() > 0)
+			scheduleAbandonAt(request.getCancellationTime(), request);
+		double delivery = link.sendUplink(request, simulation.clock());
+		uplinkPending.put(request.getRequestId(), new PendingDestination(request, target.getId()));
+		schedule(this, delivery - simulation.clock(), UPLINK_DELIVERED, request);
+	}
+
+	/**
+	 * Asks the routing policy which replica of a stage should take the request.
+	 * <p>
+	 * The policy sees only the replicas of the stage, in stage order, so an index it returns is
+	 * read back against that same list. A split deployment therefore never routes a fresh prompt to
+	 * a decode instance, which holds no prompt to prefill, and never hands a finished cache to a
+	 * prefill instance, which decodes nothing.
+	 *
+	 * @param stage   the replicas eligible for this leg of the journey
+	 * @param request the request being placed
+	 * @return the chosen replica, or {@code null} when the policy refuses or the stage is empty
+	 */
+	protected ReplicaServer routeIn(List<ReplicaServer> stage, InferenceRequest request) {
+		if (stage.isEmpty())
+			return null;
+		List<ReplicaLoad> view = new ArrayList<>(stage.size());
+		for (ReplicaServer replica : stage)
+			view.add(replica.snapshot());
+		int chosenId = routingPolicy.choose(view, request);
+		// The policy answers with a replica identifier, not a position, and the identifier counts
+		// every replica of the model across the whole service. A stage is a slice of that set, so a
+		// decode instance can be the first replica of its list yet carry the second identifier: the
+		// choice is resolved by matching identifiers, never by reading the list at that number.
+		if (chosenId < 0)
+			return null;
+		for (ReplicaServer replica : stage)
+			if (replica.getId() == chosenId)
+				return replica;
+		return null;
+	}
+
+	/**
+	 * Hands a prompt whose flight ended to the replica it was routed to.
+	 * <p>
+	 * A request the client abandoned while its prompt was on the wire is already terminal, so the
+	 * delivery is dropped: the bytes were carried, but the replica never sees the request.
+	 *
+	 * @param request the request whose prompt reached its device
+	 */
+	protected void onUplinkDelivered(InferenceRequest request) {
+		PendingDestination pending = uplinkPending.remove(request.getRequestId());
+		if (pending == null || request.getState().isTerminal())
+			return;
+		ReplicaServer target = replicaById(pending.replicaId);
 		target.enqueue(request);
 		scheduleAbandonChecks(request, target);
+	}
+
+	/**
+	 * Hands the finished cache of a prefilled prompt to a decode instance over the fabric.
+	 * <p>
+	 * Called by a prefill replica once a prompt is fully cached. The request leaves its prefill
+	 * device with no owner: the decode device has not taken it yet and the prefill device has given
+	 * its blocks back, so it is carried in {@link #transferPending} until the fabric releases it,
+	 * exactly as an access link carries a prompt before its replica is chosen. With no bearer
+	 * configured the hand-off is instant and the sequence enters the decode queue at once.
+	 *
+	 * @param request the request whose prompt finished prefilling, still in
+	 *                {@link RequestState#PREFILLING}
+	 * @param clock   the instant the prefill device released the cache, in seconds
+	 */
+	public void handoff(InferenceRequest request, double clock) {
+		// The prefill device has already given its blocks back, so from here the sequence belongs to
+		// no replica until a decode device adopts it, exactly as a prompt on an access link carries
+		// no owner before it is delivered. finish() then frees nothing on behalf of the prefill
+		// device, because that device holds nothing any more.
+		request.setReplicaId(-1);
+		ReplicaServer target = routeIn(decodeStage, request);
+		if (target == null) {
+			// No decode instance will take the sequence, which a policy can force by refusing every
+			// load; the request had its prompt computed, so it ends as a capacity refusal.
+			finish(request, RequestState.REJECTED, OutcomeReason.ADMISSION_NO_CACHE_CAPACITY);
+			return;
+		}
+		request.transitionTo(RequestState.TRANSFERRING);
+		if (fabric == null) {
+			deliverHandoff(request, target);
+			return;
+		}
+		double bytes = request.getCachedTokens() * model.kvBytesPerToken();
+		double delivery = fabric.sendKvTransfer(bytes, clock);
+		transferPending.put(request.getRequestId(), new PendingDestination(request, target.getId()));
+		schedule(this, delivery - clock, KV_TRANSFER_DONE, request);
+	}
+
+	/**
+	 * Gives a cache that finished crossing the fabric to the decode replica it was routed to.
+	 * <p>
+	 * A request the client abandoned mid-transfer is already terminal, so the arrival is dropped:
+	 * the bytes were carried, but no device decodes a sequence nobody waits for.
+	 *
+	 * @param request the request whose cache reached its decode device
+	 */
+	protected void onKvTransferDone(InferenceRequest request) {
+		PendingDestination pending = transferPending.remove(request.getRequestId());
+		if (pending == null || request.getState().isTerminal())
+			return;
+		deliverHandoff(request, replicaById(pending.replicaId));
+	}
+
+	/**
+	 * Enters a transferred sequence in the queue of its decode replica.
+	 *
+	 * @param request  the request whose cache arrived
+	 * @param target   the decode replica that will generate its tokens
+	 */
+	protected void deliverHandoff(InferenceRequest request, ReplicaServer target) {
+		// The request no longer belongs to any replica while it is in flight, so it carries none
+		// until the decode device takes it; finish() then frees the right device's resources.
+		request.setReplicaId(-1);
+		target.enqueue(request);
+		scheduleAbandonChecks(request, target);
+	}
+
+	/**
+	 * A request a bearer is carrying, together with the replica it is bound for: a prompt still on
+	 * its way up, or a finished cache still crossing the fabric to a decode instance.
+	 */
+	protected static class PendingDestination {
+		/** Request being carried. */
+		protected final InferenceRequest request;
+		/** Replica waiting for it. */
+		protected final int replicaId;
+
+		/**
+		 * Remembers one in-flight request.
+		 *
+		 * @param request   the request being carried
+		 * @param replicaId the replica it is bound for
+		 */
+		protected PendingDestination(InferenceRequest request, int replicaId) {
+			this.request = request;
+			this.replicaId = replicaId;
+		}
 	}
 
 	/**
@@ -205,9 +431,20 @@ public class InferenceService extends SimEntity {
 	 */
 	protected void scheduleAbandonChecks(InferenceRequest request, ReplicaServer replica) {
 		if (request.getCancellationTime() > 0)
-			schedule(this, Math.max(0, request.getCancellationTime() - simulation.clock()), ABANDON_CHECK, request);
+			scheduleAbandonAt(request.getCancellationTime(), request);
 		if (replica.abortsOnDeadlineMiss() && request.getEndToEndDeadline() > 0)
-			schedule(this, Math.max(0, request.getEndToEndDeadline() - simulation.clock()), ABANDON_CHECK, request);
+			scheduleAbandonAt(request.getEndToEndDeadline(), request);
+	}
+
+	/**
+	 * Arms the check that ends a request at an absolute instant, now when that instant already
+	 * passed.
+	 *
+	 * @param instant the simulation time to wake up at, in seconds
+	 * @param request the request to check
+	 */
+	protected void scheduleAbandonAt(double instant, InferenceRequest request) {
+		schedule(this, Math.max(0, instant - simulation.clock()), ABANDON_CHECK, request);
 	}
 
 	/**
@@ -238,6 +475,15 @@ public class InferenceService extends SimEntity {
 	 * The method is idempotent on purpose: a request can reach a terminal state through two paths
 	 * in the same instant, a client abandoning while the replica finishes its last iteration. The
 	 * first outcome wins and the second is ignored, because a request cannot have two reasons.
+	 * <p>
+	 * The routing policy is then told the request finished. That callback is the only place a
+	 * placement decision meets its consequence, so it is what a policy that learns from observed
+	 * latency rather than from a predicted cost can exist at all.
+	 * <p>
+	 * The row is written at the instant the device ended its work, not at the instant the client
+	 * reads the response: a request that is still on its way back is complete, and deferring the
+	 * row would leave the engine without the counter that proves no request was lost. The trip
+	 * home is written in the row as {@code downlink_s} and {@code delivery_time_s}.
 	 *
 	 * @param request  the request ending
 	 * @param outcome  the terminal state
@@ -246,11 +492,34 @@ public class InferenceService extends SimEntity {
 	public void finish(InferenceRequest request, RequestState outcome, OutcomeReason reason) {
 		if (request.getState().isTerminal())
 			return;
+		uplinkPending.remove(request.getRequestId());
+		transferPending.remove(request.getRequestId());
 		if (request.getReplicaId() >= 0)
 			replicaById(request.getReplicaId()).releaseResourcesOf(request);
-		request.finish(outcome, reason.label(), simulation.clock());
+		double clock = simulation.clock();
+		request.finish(outcome, reason.label(), clock);
+		chargeDownlink(request, outcome, clock);
 		recorder.record(request);
 		finishedRequests++;
+		routingPolicy.onFinished(request);
+	}
+
+	/**
+	 * Puts the response of a completed request on the bearer that reaches its client.
+	 * <p>
+	 * Only a response that exists travels: a refused or abandoned request carries no tokens, and
+	 * its delivery instant is the instant it ended. The figure is a ledger entry, not an event,
+	 * because nothing in the engine waits for the client to read the answer.
+	 *
+	 * @param request the request that just reached a terminal state
+	 * @param outcome the terminal state it reached
+	 * @param clock   the instant it ended, in seconds
+	 */
+	protected void chargeDownlink(InferenceRequest request, RequestState outcome, double clock) {
+		AccessLink link = request.getReplicaId() >= 0 ? replicaById(request.getReplicaId()).getLink() : null;
+		request.setDeliveryTime(clock);
+		if (link != null && outcome == RequestState.COMPLETED && request.getGeneratedTokens() > 0)
+			request.setDeliveryTime(link.sendDownlink(request, clock));
 	}
 
 	/**
@@ -318,16 +587,30 @@ public class InferenceService extends SimEntity {
 		List<InferenceRequest> inside = new ArrayList<>();
 		for (ReplicaServer replica : replicas)
 			inside.addAll(replica.requestsInside());
+		for (PendingDestination pending : uplinkPending.values())
+			inside.add(pending.request);
+		uplinkPending.clear();
+		for (PendingDestination pending : transferPending.values())
+			inside.add(pending.request);
+		transferPending.clear();
 		RequestState outcome = reason == OutcomeReason.CLIENT_CANCELLED ? RequestState.CANCELLED
 				: RequestState.TIMED_OUT;
-		for (InferenceRequest request : inside)
+		int closed = 0;
+		for (InferenceRequest request : inside) {
+			if (request.getState().isTerminal())
+				continue;
 			finish(request, outcome, reason);
-		return inside.size();
+			closed++;
+		}
+		return closed;
 	}
 
 	/**
-	 * Checks that every request that arrived has been recorded, and that no replica holds
-	 * resources of a recorded request.
+	 * Checks that every request that arrived has been recorded, that no replica holds resources of
+	 * a recorded request, and that no prompt is still on a bearer.
+	 * <p>
+	 * A request a link is carrying counts as arrived but is held by no replica, so the third check
+	 * is what keeps an in-flight prompt from disappearing between the two counters that agree.
 	 *
 	 * @throws IllegalStateException when a request was lost or a reservation leaked
 	 */
@@ -338,6 +621,14 @@ public class InferenceService extends SimEntity {
 						+ replica.requestsInside().size() + " requests at the end of the run");
 			replica.checkCacheConsistency();
 		}
+		if (!uplinkPending.isEmpty())
+			throw new IllegalStateException("Service \"" + modelId + "\" ends with " + uplinkPending.size()
+					+ " prompts still on an access link; a request that was released must be recorded even when it"
+					+ " never reached its replica");
+		if (!transferPending.isEmpty())
+			throw new IllegalStateException("Service \"" + modelId + "\" ends with " + transferPending.size()
+					+ " caches still on the fabric; a prompt handed to a decode instance must be recorded even when"
+					+ " the transfer never completed");
 		if (arrivedRequests != finishedRequests)
 			throw new IllegalStateException("Service \"" + modelId + "\" saw " + arrivedRequests
 					+ " arrivals but recorded " + finishedRequests + " requests; "

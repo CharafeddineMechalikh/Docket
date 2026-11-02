@@ -42,7 +42,8 @@ The separation is checked by construction: `ReplicaServer` holds no execution fo
 
 1. `Main` reads the properties file as UTF-8, applies `-D`, `-s`, `-r` and `-o` overrides, and
    keeps the origin of every key.
-2. `Scenario.load` builds the model, the device, the replicas, the workload and the cost model,
+2. `Scenario.load` builds the model, the device profiles, the replicas (one per machine, each bound
+   to the bearer its block names, if any), the workload and the cost model,
    validating each one and then the cross-cutting facts (the workload targets the served model,
    the device declares the model's precision, at least one replica exists, the trace is sorted by
    arrival).
@@ -64,35 +65,71 @@ Three entity types participate:
   place where a request is recorded as terminal. Funelling every outcome through one method is
   what makes "no request is lost and none is counted twice" checkable.
 - `ReplicaServer` runs the device: it admits requests from its queue, executes prefill chunks and
-  decode iterations one at a time, and charges energy over the intervals it occupies.
+  decode iterations one at a time, and charges energy over the intervals it occupies. In a
+  disaggregated deployment each replica is given one role, so a prefill replica only prefill-steps
+  and hands its finished cache to a decode replica, which only decodes.
 
 ```mermaid
 sequenceDiagram
   participant S as WorkloadSource
   participant V as InferenceService
+  participant L as Access link
   participant R as ReplicaServer
   participant C as Cost model
   S->>V: REQUEST_ARRIVED
   V->>V: admission decision
   alt refused
     V->>V: finish REJECTED with a reason
-  else admitted
+  else admitted, the device names no bearer
     V->>R: enqueue
-    R->>R: pump: choose head of queue
-    R->>C: price prefill chunk
-    C-->>R: seconds, flops, binding term
-    R->>R: schedule PREFILL_DONE
-    R->>C: price decode iteration
-    C-->>R: seconds, flops, binding term
-    R->>R: schedule ITERATION_DONE
-    R->>V: finish COMPLETED or stop at the context limit
+  else admitted, the device names a bearer
+    V->>L: send the prompt as one message
+    L-->>V: UPLINK_DELIVERED when the queue releases it
+    V->>R: enqueue
   end
+  R->>R: pump: choose head of queue
+  R->>C: price prefill chunk
+  C-->>R: seconds, flops, binding term
+  R->>R: schedule PREFILL_DONE
+  R->>C: price decode iteration
+  C-->>R: seconds, flops, binding term
+  R->>R: schedule ITERATION_DONE
+  R->>V: finish COMPLETED or stop at the context limit
+  V->>L: charge the response, then write the row
 ```
+
+### The access link is a ledger, not an entity
+
+A bearer adds no fourth entity type, and that is deliberate. A first-in first-out queue whose
+service time is known when the message is pushed needs no event of its own to compute its exit
+instant: it needs the timestamp the bearer next becomes free, one number per direction. `AccessLink`
+holds those two timestamps, and the service schedules the delivery it was given on its own clock as
+the `UPLINK_DELIVERED` event. The prompt is therefore held between the gateway and the replica, with
+the request in `ADMITTED`, and the replica cannot reserve cache for bytes that have not arrived.
+
+Three consequences are worth naming, because each is a place a network model usually goes wrong:
+
+- **A client that stops waiting is checked from its release instant, not from the delivery.** A
+  flight that outlasts the patience of the client ends the request on the link, rather than queueing
+  work nobody asks for any more.
+- **The response is charged when the row is written, not as an event.** Nothing in the engine waits
+  for the client to read the answer, so the downlink is a ledger entry: `terminal_time_s` keeps the
+  device instant and `delivery_time_s` carries the client one. A prompt still on the wire when the
+  horizon passes is closed as `TIMED_OUT` at the horizon and keeps the flight it was owed, so the
+  row says what the bearer was doing when the run ended.
+- **No prompt may be left on a bearer.** `checkNoRequestIsLost` counts a request as arrived the
+  instant it is released, and it is held by no replica while it travels, so the leftover check is
+  what stops an in-flight prompt from disappearing between two counters that otherwise agree.
+
+Two devices that name the same link share one `AccessLink` object, and therefore one queue: an
+access point serving three phones is one bottleneck. A scenario that names no bearer runs the path
+it ran before the link existed, which is why the committed figures of earlier releases still match.
 
 ## The replica loop
 
 A replica is a single server. One step executes at a time, and a step is either a prefill chunk or
-one decode iteration, never both.
+one decode iteration, never both. The loop below draws the colocated replica, which can take either
+branch; a disaggregated replica is given one role and only ever takes one branch.
 
 ```mermaid
 flowchart TD
@@ -119,21 +156,42 @@ Details that matter for a result:
   higher per-token cost than a large one; the benefit is that decodes are not starved.
 - **Completion can stop early.** A generation that reaches the model or cache context limit before
   the requested number of tokens terminates with `CONTEXT_LIMIT_REACHED`, which is not a success.
+- **A disaggregated hand-off leaves the loop.** A prefill replica prices no decode and a decode
+  replica prices no prefill; when a disaggregated prefill finishes it exits as a `TRANSFERRING`
+  hand-off onto the fabric rather than joining a local batch, and a cache that arrives from the
+  fabric joins a decode replica's queue and is adopted straight into decoding, so it never prefills
+  twice.
 
 ## Request states
 
 ```mermaid
 flowchart LR
   CREATED --> ARRIVED --> ADMITTED --> QUEUED
+  ADMITTED -->|prompt on a bearer| TIMED_OUT
+  ADMITTED -->|prompt on a bearer| CANCELLED
   QUEUED --> PREFILLING --> DECODING
+  QUEUED -->|cache transferred in| DECODING
+  PREFILLING -->|disaggregated| TRANSFERRING --> QUEUED
   DECODING --> PREEMPTED
   PREEMPTED --> QUEUED
   DECODING --> COMPLETED
   ARRIVED --> REJECTED
   QUEUED --> CANCELLED
   PREFILLING --> TIMED_OUT
+  TRANSFERRING --> TIMED_OUT
   DECODING --> TIMED_OUT
 ```
+
+The two edges out of `ADMITTED` exist only when a device names a bearer: they are the request whose
+prompt was still on the wire when the horizon passed, or when the client stopped waiting. Without a
+link, admission is followed by the queue in the same instant.
+
+`TRANSFERRING` and the direct `QUEUED -> DECODING` edge appear only when the deployment disaggregates
+the two phases: a request prefills on one pool, its finished cache crosses the fabric to a decode
+pool, and that pool adopts it straight into decoding, so its queue leads to decoding rather than to
+prefilling. A colocated machine never enters `TRANSFERRING`. A hand-off is not a completion: like
+prefill, it can still end in `TIMED_OUT` or `CANCELLED` if the horizon passes or the client stops
+waiting while the cache is in flight.
 
 The transitions are declared in `RequestState`, and `InferenceRequest.transitionTo` rejects any
 move that is not in the table. A request cannot be queued and decoding at once, and a terminal

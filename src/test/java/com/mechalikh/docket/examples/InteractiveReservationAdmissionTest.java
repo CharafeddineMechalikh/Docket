@@ -80,7 +80,7 @@ class InteractiveReservationAdmissionTest {
 	}
 
 	private static ReplicaLoad load(int id, int waiting) {
-		return new ReplicaLoad(id, waiting, 0, 1_000_000, 1_000_000, 0);
+		return new ReplicaLoad(id, "device-" + id, "test-tier", 64, waiting, 0, 1_000_000, 1_000_000, 0);
 	}
 
 	private static InferenceRequest request(String serviceClass) {

@@ -1,0 +1,21 @@
+experiment  ex13-pd-homogeneous, 300.0 s, seed 1, 3 repetition(s)
+model       edge-chat: 7000000000 parameters, 32 layers, hidden 4096, kv 1024 scalars/token, fp16, context 4096 tokens [synthetic]
+device      gpu: 24.0 GiB, 700 GB/s, achieved [fp16] 100.0 TFLOPS [synthetic]
+deployment  disaggregated: 1 prefill + 3 decode, KV fabric fabric; 4 replica(s), batch <= 64, prefill chunk 512 tokens, block 16 tokens, preemption newest-first, deadline abort off
+cost        roofline-analytical [synthetic, uncalibrated]
+workload    poisson, poisson 300.000 req/min; lengths: input=triangular, output=triangular; prediction=oracle; targets=ttft 2.00 s s, e2e 30.0 s s, tpot 0.100 s s
+policies    admission unlimited, routing least-queued, scheduling fcfs
+
+# Provenance of the weakest input: synthetic
+# Cost model: roofline-analytical, provenance synthetic, calibrated=no, source=none
+# WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+# WARNING the achieved throughput of the device is used, never its published peak
+# WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+# WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+# Pooled ttft_s: n=4392 mean=0.177405 p99=0.526413
+# Pooled e2e_s: n=4332 mean=4.255306 p99=7.597235
+# Pooled tpot_s: n=4392 mean=0.021106 p99=0.021667
+# Pooled mean_itl_s: n=4392 mean=0.021106 p99=0.021667
+# Pooled queueing_s: n=4394 mean=0.070409 p99=0.403598
+# Pooled prefill_s: n=4394 mean=0.104554 p99=0.199909
+# Pooled decode_s: n=4392 mean=0.613851 p99=1.335405

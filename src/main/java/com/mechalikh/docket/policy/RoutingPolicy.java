@@ -64,6 +64,21 @@ public interface RoutingPolicy {
 	}
 
 	/**
+	 * Reports a request that has reached the end of its life, so that a policy can learn from what
+	 * its choices produced.
+	 * <p>
+	 * A policy that only picks a replica cannot tell whether the pick was good; this is the one
+	 * place it sees the outcome. The request carries the replica it was sent to, its arrival and
+	 * terminal instants and its token counts, which is enough to score the decision. The callback
+	 * is informational: nothing a policy does here changes the request or the replica, and the
+	 * engine keeps asserting that every arrival is recorded exactly once.
+	 *
+	 * @param request the request that finished, in a terminal state
+	 */
+	default void onFinished(InferenceRequest request) {
+	}
+
+	/**
 	 * Returns the description written next to the results.
 	 *
 	 * @return a one-line description

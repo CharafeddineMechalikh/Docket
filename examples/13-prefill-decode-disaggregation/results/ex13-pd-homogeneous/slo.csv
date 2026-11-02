@@ -1,0 +1,13 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex13-pd-homogeneous,1,interactive,ttft,1455,1429,1455,1454,0.9993127147766323
+ex13-pd-homogeneous,1,interactive,e2e,1455,1429,1455,1429,0.9821305841924398
+ex13-pd-homogeneous,1,interactive,tpot,1455,1429,1454,1454,1.0
+ex13-pd-homogeneous,1,interactive,all,1455,1429,1455,1429,0.9821305841924398
+ex13-pd-homogeneous,2,interactive,ttft,1493,1475,1493,1492,0.999330207635633
+ex13-pd-homogeneous,2,interactive,e2e,1493,1475,1493,1475,0.9879437374413932
+ex13-pd-homogeneous,2,interactive,tpot,1493,1475,1492,1492,1.0
+ex13-pd-homogeneous,2,interactive,all,1493,1475,1493,1475,0.9879437374413932
+ex13-pd-homogeneous,3,interactive,ttft,1446,1428,1446,1446,1.0
+ex13-pd-homogeneous,3,interactive,e2e,1446,1428,1446,1428,0.9875518672199171
+ex13-pd-homogeneous,3,interactive,tpot,1446,1428,1446,1446,1.0
+ex13-pd-homogeneous,3,interactive,all,1446,1428,1446,1428,0.9875518672199171

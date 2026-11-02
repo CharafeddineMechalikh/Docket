@@ -20,9 +20,20 @@ package com.mechalikh.docket.power;
 
 import com.mechalikh.docket.domain.GpuProfile;
 import com.mechalikh.docket.domain.Provenance;
+import com.mechalikh.pureedgesim.energy.EnergyModelComputingNode;
 
 /**
  * Integrates the power declared by a device over the time the replica holds it.
+ * <p>
+ * This extends the PureEdgeSim {@link EnergyModelComputingNode}, reusing its idle and active
+ * power ratings (a device in both simulators is exactly a two-level {@code idle}/{@code active}
+ * consumer), but overrides the accounting. PureEdgeSim integrates in watt-hours implicitly, once
+ * per simulation tick and per instruction-work unit, and ties the node to a battery. Docket
+ * integrates in joules over explicit intervals the batch server reports at step boundaries,
+ * attributes each interval across the sequences that shared it, and carries a provenance label on
+ * the two power figures. No battery, per-bit network energy or {@code SimulationParameters} tick
+ * is consulted, so the {@code updateStatic*}/{@code updateDynamic*} methods inherited from the
+ * engine base are deliberately left unused here.
  * <p>
  * The device is modelled with two constant power levels, idle and active, so the energy is the
  * exact integral of a piecewise-constant function: each interval the server reports is charged
@@ -38,14 +49,10 @@ import com.mechalikh.docket.domain.Provenance;
  * @author Charafeddine Mechalikh
  * @since Docket 0.1
  */
-public class GpuPowerModel {
+public class GpuPowerModel extends EnergyModelComputingNode {
 
 	/** Device the figures belong to, for error messages. */
 	protected final String deviceId;
-	/** Power drawn while holding no work, in watts. */
-	protected final double idleWatts;
-	/** Power drawn while executing, in watts. */
-	protected final double activeWatts;
 	/** Where the two power figures come from. */
 	protected final Provenance provenance;
 	/** Time the device was executing, in seconds. */
@@ -58,18 +65,30 @@ public class GpuPowerModel {
 	protected double idleEnergyJoule;
 
 	/**
-	 * Reads the power figures of a device.
+	 * Reads the power figures of a device into the engine's idle/active power ratings.
 	 *
 	 * @param device the executing device
+	 * @throws IllegalArgumentException when {@code device} is {@code null} or invalid
 	 */
 	public GpuPowerModel(GpuProfile device) {
+		super(activeWattsOf(device), device.getIdlePowerWatts());
+		this.deviceId = device.getId();
+		this.provenance = device.getProvenance();
+	}
+
+	/**
+	 * Validates the device and returns its active power, so the check runs before the engine
+	 * super-constructor consumes the ratings.
+	 *
+	 * @param device the executing device, possibly {@code null}
+	 * @return the active power, in watts
+	 * @throws IllegalArgumentException when {@code device} is {@code null} or invalid
+	 */
+	private static double activeWattsOf(GpuProfile device) {
 		if (device == null)
 			throw new IllegalArgumentException("A power model needs the device it describes");
 		device.validate();
-		this.deviceId = device.getId();
-		this.idleWatts = device.getIdlePowerWatts();
-		this.activeWatts = device.getActivePowerWatts();
-		this.provenance = device.getProvenance();
+		return device.getActivePowerWatts();
 	}
 
 	/**
@@ -82,7 +101,7 @@ public class GpuPowerModel {
 	public double recordActive(double seconds) {
 		checkInterval(seconds, deviceId);
 		activeSeconds += seconds;
-		double joule = activeWatts * seconds;
+		double joule = getMaxActiveConsumption() * seconds;
 		activeEnergyJoule += joule;
 		return joule;
 	}
@@ -97,7 +116,7 @@ public class GpuPowerModel {
 	public double recordIdle(double seconds) {
 		checkInterval(seconds, deviceId);
 		idleSeconds += seconds;
-		double joule = idleWatts * seconds;
+		double joule = getIdleConsumption() * seconds;
 		idleEnergyJoule += joule;
 		return joule;
 	}
@@ -135,7 +154,7 @@ public class GpuPowerModel {
 	 * @return active power, in watts
 	 */
 	public double activePowerWatts() {
-		return activeWatts;
+		return getMaxActiveConsumption();
 	}
 
 	/**
@@ -144,7 +163,7 @@ public class GpuPowerModel {
 	 * @return idle power, in watts
 	 */
 	public double idlePowerWatts() {
-		return idleWatts;
+		return getIdleConsumption();
 	}
 
 	/**
@@ -243,7 +262,7 @@ public class GpuPowerModel {
 	 */
 	@Override
 	public String toString() {
-		return "GpuPowerModel[" + deviceId + ", " + activeWatts + " W active / " + idleWatts + " W idle, "
-				+ totalJoule() + " J]";
+		return "GpuPowerModel[" + deviceId + ", " + getMaxActiveConsumption() + " W active / "
+				+ getIdleConsumption() + " W idle, " + totalJoule() + " J]";
 	}
 }

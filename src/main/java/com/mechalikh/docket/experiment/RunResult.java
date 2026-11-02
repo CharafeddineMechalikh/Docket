@@ -333,6 +333,45 @@ public class RunResult {
 	}
 
 	/**
+	 * Summarises the time the prompts of this run spent crossing their access link.
+	 * <p>
+	 * The figure is kept out of {@link #METRICS} on purpose: a deployment that names no bearer has
+	 * no network to measure, and an empty column in the summary table would read as a latency of
+	 * zero rather than as an absent link. Rows that never sent a prompt are not counted.
+	 *
+	 * @return the uplink times, empty when the run carried no prompt over a link
+	 */
+	public LatencyStats uplinkStats() {
+		return new LatencyStats(collectPositive(requests, true), 1);
+	}
+
+	/**
+	 * Summarises the time the responses of this run spent crossing their access link.
+	 * <p>
+	 * Only a completed request has a response to send, so a run of refusals reports no observation.
+	 *
+	 * @return the downlink times, empty when no response travelled
+	 */
+	public LatencyStats downlinkStats() {
+		return new LatencyStats(collectPositive(requests, false), 1);
+	}
+
+	/**
+	 * Collects the strictly positive link times of the rows.
+	 *
+	 * @param requests the rows of the run
+	 * @param uplink   {@code true} for the prompt direction, {@code false} for the response one
+	 * @return the observations, a request that crossed no link left out
+	 */
+	protected static List<Double> collectPositive(List<InferenceRequest> requests, boolean uplink) {
+		List<Double> values = new ArrayList<>(requests.size());
+		for (InferenceRequest request : requests)
+			addIfFinite(values,
+					positive(uplink ? request.getUplinkSeconds() : request.getDownlinkSeconds()));
+		return values;
+	}
+
+	/**
 	 * Returns every metric summary.
 	 *
 	 * @return the summaries, in reporting order

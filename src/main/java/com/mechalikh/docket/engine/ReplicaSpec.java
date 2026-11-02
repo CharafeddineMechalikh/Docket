@@ -20,6 +20,7 @@ package com.mechalikh.docket.engine;
 
 import com.mechalikh.docket.domain.GpuProfile;
 import com.mechalikh.docket.domain.ModelProfile;
+import com.mechalikh.docket.network.LinkProfile;
 
 /**
  * The deployment of one model on one device, with the limits its serving loop respects.
@@ -82,6 +83,65 @@ public class ReplicaSpec {
 		}
 	}
 
+	/**
+	 * The phase of serving a replica is responsible for, which decides how the serving loop treats
+	 * it when prefill and decode are split onto separate devices.
+	 *
+	 * @author Charafeddine Mechalikh
+	 * @since Docket 1.1
+	 */
+	public enum Role {
+		/** Both phases on this one device, the way every Docket deployment ran before disaggregation. */
+		COLOCATED("colocated"),
+		/** This device only prefills prompts and hands their cache to a decode replica. */
+		PREFILL("prefill"),
+		/** This device only decodes sequences whose cache arrived from a prefill replica. */
+		DECODE("decode");
+
+		/** Label written to the artifacts and accepted from a scenario file. */
+		private final String label;
+
+		Role(String label) {
+			this.label = label;
+		}
+
+		/**
+		 * Returns the configuration name.
+		 *
+		 * @return the label
+		 */
+		public String label() {
+			return label;
+		}
+
+		/**
+		 * Finds a role by its configuration name.
+		 *
+		 * @param value the configured name, case insensitive
+		 * @return the role
+		 * @throws IllegalArgumentException when no role matches
+		 */
+		public static Role from(String value) {
+			for (Role role : values())
+				if (role.label.equalsIgnoreCase(value.trim()))
+					return role;
+			StringBuilder known = new StringBuilder();
+			for (Role role : values())
+				known.append(known.length() == 0 ? "" : ", ").append(role.label);
+			throw new IllegalArgumentException("Unknown replica role \"" + value + "\"; known roles are " + known);
+		}
+
+		/**
+		 * Returns the configuration name, so the role prints as it is written in a scenario file.
+		 *
+		 * @return the label
+		 */
+		@Override
+		public String toString() {
+			return label;
+		}
+	}
+
 	/** Model this replica serves. */
 	protected ModelProfile model;
 	/** Device this replica runs on. */
@@ -104,6 +164,17 @@ public class ReplicaSpec {
 	protected int reservedActivationSlots = 0;
 	/** Identifier of the service this replica belongs to, for the logs. */
 	protected String serviceId = "service";
+	/**
+	 * Bearer the prompts and the responses of this replica cross, {@code null} when the deployment
+	 * assumes the clients reach the device instantly. Two replicas that name the same link share
+	 * its queue, which is how one access point serving several machines is described.
+	 */
+	protected LinkProfile link;
+	/**
+	 * Phase of serving this replica is responsible for, {@link Role#COLOCATED} unless a
+	 * disaggregated deployment assigned it a prefill or decode role.
+	 */
+	protected Role role = Role.COLOCATED;
 
 	/**
 	 * Checks that the deployment can run.
@@ -117,6 +188,8 @@ public class ReplicaSpec {
 			throw new IllegalArgumentException("Replica of model \"" + model.getId() + "\" needs a device");
 		model.validate();
 		device.validate();
+		if (link != null)
+			link.validate();
 		if (maxBatchSize < 1)
 			throw new IllegalArgumentException("Replica of model \"" + model.getId()
 					+ "\": maxBatchSize must be at least one sequence");
@@ -409,6 +482,46 @@ public class ReplicaSpec {
 	}
 
 	/**
+	 * Returns the bearer the traffic of this replica crosses.
+	 *
+	 * @return the link profile, {@code null} when the deployment models no access link
+	 */
+	public LinkProfile getLink() {
+		return link;
+	}
+
+	/**
+	 * Sets the bearer the traffic of this replica crosses.
+	 *
+	 * @param link the link profile, {@code null} to serve the replica without charging a link
+	 * @return this spec
+	 */
+	public ReplicaSpec setLink(LinkProfile link) {
+		this.link = link;
+		return this;
+	}
+
+	/**
+	 * Returns the phase of serving this replica is responsible for.
+	 *
+	 * @return the role, {@link Role#COLOCATED} unless a disaggregated deployment set another one
+	 */
+	public Role getRole() {
+		return role;
+	}
+
+	/**
+	 * Sets the phase of serving this replica is responsible for.
+	 *
+	 * @param role the role, {@code null} falls back to {@link Role#COLOCATED}
+	 * @return this spec
+	 */
+	public ReplicaSpec setRole(Role role) {
+		this.role = role == null ? Role.COLOCATED : role;
+		return this;
+	}
+
+	/**
 	 * Returns a one-line summary with the service, the model and device identifiers, and the
 	 * batch, chunk and preemption limits.
 	 *
@@ -417,6 +530,7 @@ public class ReplicaSpec {
 	@Override
 	public String toString() {
 		return "ReplicaSpec[" + serviceId + ", model=" + model.getId() + ", device=" + device.getId() + ", batch "
-				+ maxBatchSize + ", chunk " + maxPrefillChunkTokens + ", preemption " + victimOrder + "]";
+				+ maxBatchSize + ", chunk " + maxPrefillChunkTokens + ", preemption " + victimOrder + ", role " + role
+				+ (link == null ? "" : ", link " + link.getId()) + "]";
 	}
 }

@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.function.ToDoubleFunction;
 
 import com.mechalikh.docket.config.Scenario;
+import com.mechalikh.docket.domain.GpuProfile;
 import com.mechalikh.docket.metrics.LatencyStats;
 
 /**
@@ -60,6 +61,10 @@ public class Report {
 	protected final Map<String, LatencyStats> pooled = new LinkedHashMap<>();
 	/** Summaries of the per-repetition means, keyed by metric. */
 	protected final Map<String, LatencyStats> acrossRepetitions = new LinkedHashMap<>();
+	/** Time the prompts spent on the access links, pooled over the repetitions. */
+	protected final LatencyStats uplinkPooled;
+	/** Time the responses spent on the access links, pooled over the repetitions. */
+	protected final LatencyStats downlinkPooled;
 
 	/**
 	 * Builds the report of a finished experiment.
@@ -87,6 +92,17 @@ public class Report {
 			pooled.put(metric, new LatencyStats(all, runs.size()));
 			acrossRepetitions.put(metric, new LatencyStats(means, runs.size()));
 		}
+		// The link figures are pooled like the latency metrics but kept out of that table, which
+		// every committed run reads with the same seven rows: a deployment with no bearer would add
+		// two rows of blanks, and a blank is harder to read than a line that is simply absent.
+		List<Double> up = new ArrayList<>();
+		List<Double> down = new ArrayList<>();
+		for (RunResult run : runs) {
+			up.addAll(run.uplinkStats().values());
+			down.addAll(run.downlinkStats().values());
+		}
+		uplinkPooled = new LatencyStats(up, runs.size());
+		downlinkPooled = new LatencyStats(down, runs.size());
 	}
 
 	/**
@@ -103,9 +119,14 @@ public class Report {
 				+ fmt(scenario.getModel().getParameterCount() / 1e6, 1) + "M parameters, "
 				+ scenario.getModel().getQuantization() + "), provenance "
 				+ scenario.getModel().getProvenance().label());
-		out.println("device               : " + scenario.getDevice().getId() + ", provenance "
-				+ scenario.getDevice().getProvenance().label());
+		out.println("device               : " + deviceSummary(scenario) + ", provenance "
+				+ scenario.deviceProvenance());
 		out.println("replicas             : " + runs.get(0).getReplicaStats().size());
+		String network = scenario.networkSummary();
+		if (network != null) {
+			out.println("network              : " + network);
+			out.println("link time            : " + linkSummary());
+		}
 		out.println("cost model           : " + scenario.getCost().name() + ", " + scenario.getCost().provenance()
 				.label() + (scenario.getCost().isCalibrated() ? ", calibrated on "
 						+ scenario.getCost().calibrationSource() : ", NOT calibrated"));
@@ -243,6 +264,52 @@ public class Report {
 			lines.add("# Pooled " + entry.getKey() + ": n=" + entry.getValue().count() + " mean="
 					+ fmt(entry.getValue().mean(), 6) + " p99=" + fmt(entry.getValue().percentile(99), 6));
 		return lines;
+	}
+
+	/**
+	 * Names the machines the deployment runs on.
+	 * <p>
+	 * A single device prints as it always did. A fleet prints every profile, because a header that
+	 * named only the first machine would hide the comparison the run is about.
+	 *
+	 * @param scenario the scenario the report describes
+	 * @return the value of the console device line
+	 */
+	private static String deviceSummary(Scenario scenario) {
+		Map<String, GpuProfile> profiles = scenario.getDeviceProfiles();
+		if (profiles.size() == 1)
+			return profiles.values().iterator().next().getId();
+		List<String> names = new ArrayList<>(profiles.size());
+		for (Map.Entry<String, GpuProfile> entry : profiles.entrySet())
+			names.add(entry.getKey().equals(entry.getValue().getId()) ? entry.getKey()
+					: entry.getKey() + " (" + entry.getValue().getId() + ")");
+		return profiles.size() + " profiles: " + String.join(", ", names);
+	}
+
+	/**
+	 * Returns the console value of the link time line, which separates the wait the bearers caused
+	 * from the wait the deployment caused.
+	 * <p>
+	 * A deployment that names a link but serves no request over it says so instead of printing a
+	 * mean of nothing.
+	 *
+	 * @return the measured uplink and downlink times
+	 */
+	private String linkSummary() {
+		return "uplink " + timed(uplinkPooled) + ", downlink " + timed(downlinkPooled);
+	}
+
+	/**
+	 * Formats one direction of the access link.
+	 *
+	 * @param stat the pooled observations
+	 * @return the text
+	 */
+	private static String timed(LatencyStats stat) {
+		if (stat.isEmpty())
+			return "no traffic";
+		return "mean " + num(stat.mean(), 4) + " s, p99 " + num(stat.percentile(99), 4) + " s over " + stat.count()
+				+ " crossing(s)";
 	}
 
 	/**

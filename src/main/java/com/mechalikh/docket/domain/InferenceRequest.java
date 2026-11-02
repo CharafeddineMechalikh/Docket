@@ -18,7 +18,7 @@
  **/
 package com.mechalikh.docket.domain;
 
-import com.mechalikh.pureedgesim.simulationengine.QueueElement;
+import com.mechalikh.pureedgesim.simulationengine.AbstractQueueElement;
 
 /**
  * One generative-AI inference request, from arrival to its terminal outcome.
@@ -31,13 +31,15 @@ import com.mechalikh.pureedgesim.simulationengine.QueueElement;
  * State changes go through {@link #transitionTo(RequestState)}, which refuses moves that
  * would put the request in two places at once, such as queued and decoding.
  * <p>
- * This class is a {@link QueueElement} so that requests can be held by the PureEdgeSim
- * {@code FutureQueue} in arrival order.
+ * This class extends the PureEdgeSim {@link AbstractQueueElement}, so requests
+ * are held by the engine {@code FutureQueue} in arrival order: the base orders
+ * any two queue elements by their time key, {@link #getTime()} here, and breaks
+ * ties with the insertion serial the queue assigns.
  *
  * @author Charafeddine Mechalikh
  * @since Docket 0.1
  */
-public class InferenceRequest implements QueueElement, Comparable<InferenceRequest> {
+public class InferenceRequest extends AbstractQueueElement<InferenceRequest> {
 
 	/** Unique identifier of the request inside one experiment. */
 	protected final long requestId;
@@ -79,9 +81,6 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 	/** Identifier of the replica that served or is serving the request, {@code -1} when none. */
 	protected int replicaId = -1;
 
-	/** Insertion serial used by the {@code FutureQueue} to break timestamp ties. */
-	protected long serial;
-
 	/** Simulation time at which the request reached the service. */
 	protected double arrivalTime;
 	/** Simulation time at which the admission policy accepted the request. */
@@ -98,6 +97,12 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 	protected double lastTokenTime;
 	/** Simulation time at which the request reached a terminal state. */
 	protected double terminalTime;
+	/** Seconds the prompt spent crossing the access link, zero when the deployment models none. */
+	protected double uplinkSeconds;
+	/** Seconds the response spent crossing the access link, zero when none was sent. */
+	protected double downlinkSeconds;
+	/** Simulation time at which the client held the whole response, {@code 0} until it was sent. */
+	protected double deliveryTime;
 
 	/** Tokens generated so far, including the one produced by the prefill. */
 	protected int generatedTokens;
@@ -217,6 +222,10 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 
 	/**
 	 * Time to the first token, measured from the arrival at the service.
+	 * <p>
+	 * A deployment with an access link measures from the instant the client released the request,
+	 * so the time the prompt spent crossing the link is part of the answer: a client counts its
+	 * own wait, not the moment its prompt reached the device.
 	 *
 	 * @return the TTFT in seconds, or {@code Double.NaN} when the first token was never emitted
 	 */
@@ -292,6 +301,7 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 	 *
 	 * @return the arrival time, in seconds
 	 */
+	@Override
 	public double getTime() {
 		return arrivalTime;
 	}
@@ -303,40 +313,6 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 	 */
 	public void setArrivalTime(double time) {
 		this.arrivalTime = time;
-	}
-
-	/**
-	 * Insertion serial assigned by the {@code FutureQueue} when the request is enqueued.
-	 *
-	 * @return the serial number, {@code 0} before the request has been queued
-	 */
-	@Override
-	public long getSerial() {
-		return serial;
-	}
-
-	/**
-	 * Assigns the insertion serial that keeps requests arriving at the same instant in a
-	 * stable order.
-	 *
-	 * @param serial the serial number, {@code 0} when it is still unknown
-	 */
-	@Override
-	public void setSerial(long serial) {
-		this.serial = serial;
-	}
-
-	/**
-	 * Orders requests by arrival time, then by the insertion serial so that two requests
-	 * arriving at the same instant keep a deterministic order.
-	 *
-	 * @param other the request to compare with
-	 * @return a negative, zero or positive value
-	 */
-	@Override
-	public int compareTo(InferenceRequest other) {
-		int byTime = Double.compare(arrivalTime, other.arrivalTime);
-		return byTime != 0 ? byTime : Long.compare(serial, other.serial);
 	}
 
 	/**
@@ -791,6 +767,68 @@ public class InferenceRequest implements QueueElement, Comparable<InferenceReque
 	 */
 	public double getTerminalTime() {
 		return terminalTime;
+	}
+
+	/**
+	 * Time the prompt spent crossing the access link between the client and the device, counting
+	 * the wait behind the transfers of the requests ahead of it.
+	 * <p>
+	 * The wait starts when the client releases the request, which is {@link #getArrivalTime()}, so
+	 * the first-token and end-to-end latencies already contain this figure. It is reported on its
+	 * own to separate the time the network cost from the time the deployment did.
+	 *
+	 * @return seconds, zero when the deployment declares no link
+	 */
+	public double getUplinkSeconds() {
+		return uplinkSeconds;
+	}
+
+	/**
+	 * Time the response spent crossing the access link on its way back to the client.
+	 *
+	 * @return seconds, zero when no response was sent
+	 */
+	public double getDownlinkSeconds() {
+		return downlinkSeconds;
+	}
+
+	/**
+	 * Instant the client held the whole response, which is the end of the request from its point of
+	 * view and therefore later than {@link #getTerminalTime()} by the downlink time.
+	 *
+	 * @return the time as a simulation time, in seconds, {@code 0} while the response was not sent
+	 */
+	public double getDeliveryTime() {
+		return deliveryTime;
+	}
+
+	/**
+	 * Sets the instant the client held the response.
+	 *
+	 * @param deliveryTime the time as a simulation time, in seconds
+	 */
+	public void setDeliveryTime(double deliveryTime) {
+		this.deliveryTime = deliveryTime;
+	}
+
+	/**
+	 * Adds time the prompt spent crossing the access link.
+	 *
+	 * @param seconds the uplink time to add, in seconds; non-positive values are ignored
+	 */
+	public void addUplinkSeconds(double seconds) {
+		if (seconds > 0)
+			uplinkSeconds += seconds;
+	}
+
+	/**
+	 * Adds time the response spent crossing the access link.
+	 *
+	 * @param seconds the downlink time to add, in seconds; non-positive values are ignored
+	 */
+	public void addDownlinkSeconds(double seconds) {
+		if (seconds > 0)
+			downlinkSeconds += seconds;
 	}
 
 	/**

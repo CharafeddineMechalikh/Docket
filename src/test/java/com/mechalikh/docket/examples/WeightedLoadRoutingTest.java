@@ -57,7 +57,7 @@ class WeightedLoadRoutingTest {
 	}
 
 	private static ReplicaLoad load(int id, int waiting, int running, int freeCache, double pending) {
-		return new ReplicaLoad(id, waiting, running, freeCache, 1_000_000, pending);
+		return new ReplicaLoad(id, "device-" + id, "test-tier", 64, waiting, running, freeCache, 1_000_000, pending);
 	}
 
 	private static InferenceRequest request() {

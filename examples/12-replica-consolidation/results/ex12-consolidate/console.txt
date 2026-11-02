@@ -1,0 +1,44 @@
+Docket development build | experiment "ex12-consolidate"
+------------------------------------------------------------------------------
+simulated duration   : 240.000 s per repetition
+repetitions          : 3, seed 1
+model                : edge-chat (1000.0M parameters, none), provenance synthetic
+device               : server, provenance synthetic
+replicas             : 4
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=consolidate, scheduling=fcfs
+workload             : poisson, model edge-chat
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1           9568      9542   0.9973    0.0121    0.1997    1.3315   0.00692     0.9973   4398.2  86398.42
+2           9554      9536   0.9981    0.0125    0.2313    1.3462   0.00693     0.9981   4410.7  86400.02
+3           9458      9443   0.9984    0.0115    0.1801    1.3215   0.00692     0.9984   4405.0  86395.97
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s          28579    0.0236    0.0120    0.0513    0.0996    0.2084    0.4027 0.0236 +- 0.0017
+e2e_s           28521    0.6057    0.5614    1.0200    1.1338    1.3321    1.8397 0.6057 +- 0.0025
+tpot_s          28579    0.0053    0.0053    0.0062    0.0064    0.0069    0.0114 0.0053 +- 0.0000
+mean_itl_s      28579    0.0053    0.0053    0.0062    0.0064    0.0069    0.0114 0.0053 +- 0.0000
+queueing_s      28580    0.0158    0.0028    0.0439    0.0919    0.2003    0.3998 0.0158 +- 0.0016
+prefill_s       28579    0.0078    0.0069    0.0132    0.0147    0.0167    0.0182 0.0078 +- 0.0000
+decode_s        28579    0.0174    0.0157    0.0301    0.0344    0.0434    0.0972 0.0174 +- 0.0001
+
+mean over 3 repetition(s): completed 9507.0 +- 32.0, goodput 0.9979 +- 0.0003, tokens/s 4404.6 +- 3.6, utilisation 0.250 +- 0.000
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+interactive        28580    1.0000    0.9979    1.0000    0.9979
+
+replica 0 (edge-chat on server-1): 11912 prefill steps, 45941 iterations, batch mean 22.77 peak 32, preemptions 0, cache refusals 0, stalls 0, peak cache 4.1% of 28586 blocks, utilisation 100.0%, energy 71998.420 J
+replica 1 (edge-chat on server-2): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 28586 blocks, utilisation 0.0%, energy 4800.000 J
+replica 2 (edge-chat on server-3): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 28586 blocks, utilisation 0.0%, energy 4800.000 J
+replica 3 (edge-chat on server-4): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 28586 blocks, utilisation 0.0%, energy 4800.000 J
+
+Artifacts written under examples\12-replica-consolidation\results/ex12-consolidate

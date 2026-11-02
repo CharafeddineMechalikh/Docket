@@ -1,0 +1,44 @@
+Docket development build | experiment "ex10-edge-first"
+------------------------------------------------------------------------------
+simulated duration   : 240.000 s per repetition
+repetitions          : 3, seed 1
+model                : edge-chat (1000.0M parameters, none), provenance synthetic
+device               : 3 profiles: nano, server, cloud, provenance synthetic
+replicas             : 4
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=edge-first, scheduling=fcfs
+workload             : poisson, model edge-chat
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1            236       227   0.9619    5.9547   13.4980   17.5309   0.04506     0.1483    106.1  23960.57
+2            211       205   0.9716    2.6193   15.6688   19.9189   0.04385     0.4265     93.6  23639.10
+3            239       231   0.9665    8.5548   21.6021   27.6864   0.04623     0.0502    108.2  23979.08
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            675    6.5786    6.2683   12.6144   14.6483   20.5632   25.7440 6.4798 +- 1.5719
+e2e_s             663   10.2733    9.8826   16.4739   19.0333   24.5887   31.9842 10.1686 +- 1.6354
+tpot_s            675    0.0334    0.0327    0.0378    0.0408    0.0452    0.0533 0.0334 +- 0.0001
+mean_itl_s        675    0.0334    0.0327    0.0378    0.0408    0.0452    0.0533 0.0334 +- 0.0001
+queueing_s        686    6.1001    5.7413   12.0411   14.2833   19.9672   25.2622 5.9986 +- 1.5415
+prefill_s         675    0.3792    0.3576    0.6390    0.7155    0.8127    0.8692 0.3793 +- 0.0018
+decode_s          675    1.6974    1.5510    2.8754    3.1405    4.1493    6.5916 1.6995 +- 0.0298
+
+mean over 3 repetition(s): completed 221.0 +- 8.1, goodput 0.2084 +- 0.1127, tokens/s 102.6 +- 4.5, utilisation 0.487 +- 0.010
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+interactive          686    0.2041    0.9577    1.0000    0.1997
+
+replica 0 (edge-chat on nano-1): 146 prefill steps, 6413 iterations, batch mean 1.98 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 1.7% of 6195 blocks, utilisation 99.2%, energy 3577.894 J
+replica 1 (edge-chat on nano-2): 141 prefill steps, 6512 iterations, batch mean 1.93 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 1.7% of 6195 blocks, utilisation 99.3%, energy 3582.680 J
+replica 2 (edge-chat on server): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 28586 blocks, utilisation 0.0%, energy 4800.000 J
+replica 3 (edge-chat on cloud): 0 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 0.0% of 101222 blocks, utilisation 0.0%, energy 12000.000 J
+
+Artifacts written under examples\10-edge-first-placement\results/ex10-edge-first

@@ -56,11 +56,12 @@ public class RequestRecorder {
 			"repetition", "cost_model", "cost_provenance", "cost_calibrated", "model_provenance", "device_provenance",
 			"request_id", "model_id", "replica_id", "tenant_id", "service_class", "priority", "session_id",
 			"arrival_time_s", "admitted_time_s", "queue_entry_time_s", "prefill_start_time_s", "first_token_time_s",
-			"last_token_time_s", "terminal_time_s", "final_state", "outcome_reason", "input_tokens",
+			"last_token_time_s", "terminal_time_s", "delivery_time_s", "final_state", "outcome_reason", "input_tokens",
 			"output_tokens_requested", "output_tokens_generated", "predicted_output_tokens", "cached_tokens",
 			"allocated_blocks", "ttft_s", "tpot_s", "mean_itl_s", "max_itl_s", "e2e_s", "queueing_s", "prefill_s",
-			"decode_s", "energy_j", "energy_wh", "preemptions", "ttft_target_s", "e2e_target_s", "tpot_target_s",
-			"cancellation_time_s", "ttft_met", "e2e_met", "tpot_met", "all_slo_met", "decode_iterations_expected"));
+			"decode_s", "uplink_s", "downlink_s", "energy_j", "energy_wh", "preemptions", "ttft_target_s",
+			"e2e_target_s", "tpot_target_s", "cancellation_time_s", "ttft_met", "e2e_met", "tpot_met", "all_slo_met",
+			"decode_iterations_expected"));
 
 	/** Columns whose value is text, and is therefore quoted in the JSON lines. */
 	protected static final Set<String> TEXT_COLUMNS = Collections.unmodifiableSet(new HashSet<>(
@@ -187,6 +188,7 @@ public class RequestRecorder {
 		values.add(seconds(request.getFirstTokenTime()));
 		values.add(seconds(request.getLastTokenTime()));
 		values.add(seconds(request.getTerminalTime()));
+		values.add(seconds(request.getDeliveryTime()));
 		values.add(request.getState().name());
 		values.add(csv(request.getOutcomeReason()));
 		values.add(Integer.toString(request.getInputTokens()));
@@ -203,6 +205,8 @@ public class RequestRecorder {
 		values.add(seconds(request.getQueueingSeconds()));
 		values.add(seconds(request.getPrefillSeconds()));
 		values.add(seconds(request.getDecodeSeconds()));
+		values.add(seconds(request.getUplinkSeconds()));
+		values.add(seconds(request.getDownlinkSeconds()));
 		values.add(sci(request.getEnergyJoule()));
 		values.add(sci(request.getEnergyJoule() / 3600.0));
 		values.add(Integer.toString(request.getPreemptionCount()));

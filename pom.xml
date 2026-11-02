@@ -20,7 +20,7 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.compiler.release>11</maven.compiler.release>
-		<pureedgesim.version>6.0</pureedgesim.version>
+		<pureedgesim.version>6.1</pureedgesim.version>
 		<junit.version>5.8.2</junit.version>
 		<mainClass>com.mechalikh.docket.cli.Main</mainClass>
 	</properties>
@@ -119,6 +119,9 @@
 								<source>examples/04-session-affinity/src/main/java</source>
 								<source>examples/05-weighted-load-routing/src/main/java</source>
 								<source>examples/09-custom-policy-template/src/main/java</source>
+								<source>examples/10-edge-first-placement/src/main/java</source>
+								<source>examples/11-access-link-offloading/src/main/java</source>
+								<source>examples/12-replica-consolidation/src/main/java</source>
 							</sources>
 						</configuration>
 					</execution>

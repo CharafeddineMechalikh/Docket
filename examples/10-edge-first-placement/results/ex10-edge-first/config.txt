@@ -1,0 +1,21 @@
+experiment  ex10-edge-first, 240.0 s, seed 1, 3 repetition(s)
+model       edge-chat: 1000000000 parameters, 24 layers, hidden 2048, kv 512 scalars/token, fp16, context 4096 tokens [synthetic]
+device      3 device profiles; nano: 8.0 GiB, 68 GB/s, achieved [fp16] 2.0 TFLOPS [synthetic]; server: 24.0 GiB, 700 GB/s, achieved [fp16] 100.0 TFLOPS [synthetic]; cloud: 80.0 GiB, 3350 GB/s, achieved [fp16] 700.0 TFLOPS [synthetic]
+deployment  4 replica(s); nano-1 batch<=2 chunk=512 block=16 preempt=newest-first abort=off; nano-2 batch<=2 chunk=512 block=16 preempt=newest-first abort=off; server batch<=32 chunk=512 block=16 preempt=newest-first abort=off; cloud batch<=64 chunk=512 block=16 preempt=newest-first abort=off
+cost        roofline-analytical [synthetic, uncalibrated]
+workload    poisson, poisson 60.000 req/min; lengths: input=triangular, output=triangular; prediction=oracle; targets=ttft 2.00 s s, e2e 25.0 s s, tpot 0.100 s s
+policies    admission unlimited, routing edge-first, scheduling fcfs
+
+# Provenance of the weakest input: synthetic
+# Cost model: roofline-analytical, provenance synthetic, calibrated=no, source=none
+# WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+# WARNING the achieved throughput of the device is used, never its published peak
+# WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+# WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+# Pooled ttft_s: n=675 mean=6.578641 p99=20.563243
+# Pooled e2e_s: n=663 mean=10.273251 p99=24.588727
+# Pooled tpot_s: n=675 mean=0.033416 p99=0.045197
+# Pooled mean_itl_s: n=675 mean=0.033416 p99=0.045197
+# Pooled queueing_s: n=686 mean=6.100066 p99=19.967194
+# Pooled prefill_s: n=675 mean=0.379167 p99=0.812665
+# Pooled decode_s: n=675 mean=1.697387 p99=4.149258

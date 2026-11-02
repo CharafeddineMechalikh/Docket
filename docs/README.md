@@ -12,7 +12,7 @@ check the claim.
 | [Memory and caching](memory.md) | How device memory becomes a KV pool, how blocks are reserved, what preemption does | A run shows cache refusals, preemption or a batch ceiling |
 | [Policies](policies.md) | Admission, routing and scheduling rules, the oracle modes and the class-loading hook for a policy outside the engine | You are comparing scheduling or admission strategies, or writing your own |
 | [Metrics and artifacts](metrics.md) | Definitions, SLO accounting, CSV schemas, console layout, invariants | You are reading or plotting a result |
-| [Worked examples](../examples/README.md) | Nine policies, each with its baseline, scenario, tests and measured effect | You want a template for your own admission, routing or scheduling rule |
+| [Worked examples](../examples/README.md) | Twelve policies and one disaggregated deployment, each with its baseline, scenario, tests and measured effect | You want a template for your own admission, routing or scheduling rule, or a PD-versus-colocated comparison |
 | [Trace replay](traces.md) | The trace format, time scaling, and how a public trace maps onto it | You want to replay real traffic |
 | [Real trace replays](../examples/real-traces/README.md) | The four committed public windows, their conversions, the measured results and the limits | You want evidence under measured traffic, or you are re-running the replays |
 | [Reproducing results](reproducing.md) | Build, test, sweeps, determinism, environment | You are checking a published number |

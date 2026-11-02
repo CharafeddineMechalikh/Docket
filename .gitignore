@@ -3,6 +3,7 @@ target/
 
 # Working draft (manuscript, figures, render scratch) - not for publication
 paper/
+paper_backup*/
 
 # Java / IDE
 *.class

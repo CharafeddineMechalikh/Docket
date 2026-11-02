@@ -147,18 +147,19 @@ the numbers are measured or estimated.
 
 ## `requests.csv` columns
 
-Fifty columns, in this order:
+Fifty-three columns, in this order:
 
 ```text
 experiment, seed, repetition, cost_model, cost_provenance, cost_calibrated,
 model_provenance, device_provenance,
 request_id, model_id, replica_id, tenant_id, service_class, priority, session_id,
 arrival_time_s, admitted_time_s, queue_entry_time_s, prefill_start_time_s,
-first_token_time_s, last_token_time_s, terminal_time_s,
+first_token_time_s, last_token_time_s, terminal_time_s, delivery_time_s,
 final_state, outcome_reason,
 input_tokens, output_tokens_requested, output_tokens_generated, predicted_output_tokens,
 cached_tokens, allocated_blocks,
 ttft_s, tpot_s, mean_itl_s, max_itl_s, e2e_s, queueing_s, prefill_s, decode_s,
+uplink_s, downlink_s,
 energy_j, energy_wh, preemptions,
 ttft_target_s, e2e_target_s, tpot_target_s, cancellation_time_s,
 ttft_met, e2e_met, tpot_met, all_slo_met, decode_iterations_expected
@@ -166,6 +167,19 @@ ttft_met, e2e_met, tpot_met, all_slo_met, decode_iterations_expected
 
 Timestamps that never happened are empty. A time of `0` in a timestamp column is a real instant at
 the start of the run, not a sentinel; the sentinel is an empty cell.
+
+`uplink_s` and `downlink_s` are the time the prompt and the response spent on the access link, and
+`delivery_time_s` is the instant the client held the whole response. A deployment that names no
+bearer reports `0` for both durations and a delivery equal to the terminal time: the row says the
+link cost nothing, which is what assuming no link means. The two figures are reported separately
+from `ttft_s` and `e2e_s` because those already contain the uplink, the request being timed from
+the instant the client released it; `e2e_s` stops at the last token the device produced, so the
+trip home is the part of a client's wait that the latency columns leave out.
+
+A disaggregated deployment adds no column either. The key-value hand-off is charged onto the fabric
+between the prefill step and the first token, so its delay sits inside `ttft_s` and `e2e_s` rather
+than in a column of its own; a deployment that names no `deployment.fabric` hands off instantly and
+the row is identical to a colocated one.
 
 `requests.jsonl` holds the same rows as JSON objects, one per line. Text columns are quoted; the
 numbers keep the precision of the CSV.

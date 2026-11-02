@@ -21,6 +21,7 @@ package com.mechalikh.docket.examples;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
@@ -56,7 +57,21 @@ class ExampleInventoryTest {
 			"examples/08-policy-sweep/scenarios/ex08-fcfs.properties",
 			"examples/08-policy-sweep/scenarios/ex08-priority.properties",
 			"examples/08-policy-sweep/scenarios/ex08-shortest-expected-first.properties",
-			"examples/09-custom-policy-template/scenarios/ex09-template.properties");
+			"examples/09-custom-policy-template/scenarios/ex09-template.properties",
+			"examples/10-edge-first-placement/scenarios/ex10-least-queued.properties",
+			"examples/10-edge-first-placement/scenarios/ex10-least-predicted-work.properties",
+			"examples/10-edge-first-placement/scenarios/ex10-edge-first.properties",
+			"examples/10-edge-first-placement/scenarios/ex10-edge-first-within-budget.properties",
+			"examples/11-access-link-offloading/scenarios/ex11-least-predicted-work.properties",
+			"examples/11-access-link-offloading/scenarios/ex11-least-predicted-work-fastlink.properties",
+			"examples/11-access-link-offloading/scenarios/ex11-offload-small-prompts.properties",
+			"examples/11-access-link-offloading/scenarios/ex11-offload-small-prompts-fastlink.properties",
+			"examples/12-replica-consolidation/scenarios/ex12-least-queued.properties",
+			"examples/12-replica-consolidation/scenarios/ex12-consolidate.properties",
+			"examples/12-replica-consolidation/scenarios/ex12-consolidate-with-headroom.properties",
+			"examples/13-prefill-decode-disaggregation/scenarios/ex13-colocated.properties",
+			"examples/13-prefill-decode-disaggregation/scenarios/ex13-pd-homogeneous.properties",
+			"examples/13-prefill-decode-disaggregation/scenarios/ex13-pd-heterogeneous.properties");
 
 	@Test
 	void everyExampleScenarioIsCommittedAndLoads() {
@@ -90,5 +105,38 @@ class ExampleInventoryTest {
 		assertEquals("template-fcfs", ScenarioTestSupport
 				.load("examples/09-custom-policy-template/scenarios/ex09-template.properties")
 				.getScheduling().name());
+		assertEquals("edge-first", ScenarioTestSupport
+				.load("examples/10-edge-first-placement/scenarios/ex10-edge-first.properties")
+				.getRouting().name());
+		assertEquals("edge-first-within-budget", ScenarioTestSupport
+				.load("examples/10-edge-first-placement/scenarios/ex10-edge-first-within-budget.properties")
+				.getRouting().name());
+		assertEquals("offload-small-prompts", ScenarioTestSupport
+				.load("examples/11-access-link-offloading/scenarios/ex11-offload-small-prompts.properties")
+				.getRouting().name());
+		assertEquals("least-predicted-work", ScenarioTestSupport
+				.load("examples/11-access-link-offloading/scenarios/ex11-least-predicted-work.properties")
+				.getRouting().name());
+		assertEquals("consolidate", ScenarioTestSupport
+				.load("examples/12-replica-consolidation/scenarios/ex12-consolidate.properties")
+				.getRouting().name());
+		assertEquals("consolidate-with-headroom", ScenarioTestSupport
+				.load("examples/12-replica-consolidation/scenarios/ex12-consolidate-with-headroom.properties")
+				.getRouting().name());
+	}
+
+	@Test
+	void theDisaggregationSiblingsSplitTheirDeploymentFlag() {
+		// Only the two separated deployments ask the engine to build a prefill and a decode stage; the
+		// colocated baseline leaves the flag off, so every replica in it keeps both roles.
+		assertFalse(ScenarioTestSupport
+				.load("examples/13-prefill-decode-disaggregation/scenarios/ex13-colocated.properties")
+				.isDisaggregated());
+		assertTrue(ScenarioTestSupport
+				.load("examples/13-prefill-decode-disaggregation/scenarios/ex13-pd-homogeneous.properties")
+				.isDisaggregated());
+		assertTrue(ScenarioTestSupport
+				.load("examples/13-prefill-decode-disaggregation/scenarios/ex13-pd-heterogeneous.properties")
+				.isDisaggregated());
 	}
 }

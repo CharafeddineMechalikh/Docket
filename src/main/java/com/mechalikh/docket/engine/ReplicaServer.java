@@ -37,6 +37,7 @@ import com.mechalikh.docket.domain.RequestState;
 import com.mechalikh.docket.memory.GpuMemoryManager;
 import com.mechalikh.docket.memory.KvCachePool;
 import com.mechalikh.docket.metrics.ResourceSample;
+import com.mechalikh.docket.network.AccessLink;
 import com.mechalikh.docket.policy.ReplicaLoad;
 import com.mechalikh.docket.policy.SchedulingPolicy;
 import com.mechalikh.docket.power.GpuPowerModel;
@@ -81,6 +82,12 @@ public class ReplicaServer extends SimEntity {
 	protected final ModelProfile model;
 	/** Device executing here. */
 	protected final GpuProfile device;
+	/**
+	 * Bearer the traffic of this replica queues on, {@code null} when the deployment declares no
+	 * access link. Several replicas served by devices behind one access point hold the same object,
+	 * which is what makes their prompts wait for each other.
+	 */
+	protected final AccessLink link;
 	/** Prices the steps. */
 	protected final ExecutionCostModel cost;
 	/** Memory budget of the replica. */
@@ -125,13 +132,17 @@ public class ReplicaServer extends SimEntity {
 	 * @param service    the service owning the replica
 	 * @param spec       the deployment limits
 	 * @param cost       the model that prices the steps
+	 * @param link       the bearer the traffic of this replica queues on, {@code null} when the
+	 *                   deployment models no access link
 	 */
-	public ReplicaServer(PureEdgeSim simulation, InferenceService service, ReplicaSpec spec, ExecutionCostModel cost) {
+	public ReplicaServer(PureEdgeSim simulation, InferenceService service, ReplicaSpec spec, ExecutionCostModel cost,
+			AccessLink link) {
 		super(simulation);
 		this.service = service;
 		this.spec = spec;
 		this.model = spec.getModel();
 		this.device = spec.getDevice();
+		this.link = link;
 		this.cost = cost;
 		this.memory = new GpuMemoryManager(device, model, spec.getRuntimeOverheadBytes(),
 				spec.getReservedActivationSlots());
@@ -250,6 +261,10 @@ public class ReplicaServer extends SimEntity {
 		if (isBusy())
 			return;
 		double clock = simulation.clock();
+		if (spec.getRole() == ReplicaSpec.Role.DECODE) {
+			pumpDecode(clock);
+			return;
+		}
 		// Each retry of the loop below drops one refused head from the queue, so the size of the
 		// queue bounds the number of retries a healthy configuration can need.
 		int retries = waiting.size();
@@ -421,8 +436,71 @@ public class ReplicaServer extends SimEntity {
 			pump();
 			return;
 		}
+		// A prefill instance stops at the cache: it emits no token and decodes nothing, it hands
+		// the finished prompt state to a decode instance over the fabric.
+		if (spec.getRole() == ReplicaSpec.Role.PREFILL) {
+			handoffToDecode(request);
+			pump();
+			return;
+		}
 		joinBatch(request);
 		pump();
+	}
+
+	/**
+	 * Gives the cache of a fully prefilled prompt to the service for its trip to a decode instance.
+	 * <p>
+	 * The replica releases its own bookkeeping first: the sequence is no longer this device's
+	 * responsibility, and the blocks it held are given back so the next prompt can be prefilled.
+	 * The cached-token count stays on the request, because that count is the size of the transfer.
+	 *
+	 * @param request the request whose prompt finished prefilling
+	 */
+	protected void handoffToDecode(InferenceRequest request) {
+		releaseOf(request);
+		service.handoff(request, simulation.clock());
+	}
+
+	/**
+	 * Runs one scheduling pass of a decode instance: adopt transferred sequences, then iterate.
+	 * <p>
+	 * A decode replica never prefills and never suspends a running sequence. Its sequences arrive
+	 * with their cache already computed elsewhere, so a suspension would throw away state this
+	 * device cannot recompute, and the whole point of disaggregation is that a decode step is not
+	 * delayed by the prefill of another request. The loop therefore only makes room from completions.
+	 *
+	 * @param clock current simulation time
+	 */
+	protected void pumpDecode(double clock) {
+		sortWaitingIfNeeded();
+		while (!waiting.isEmpty() && running.size() < spec.getMaxBatchSize()) {
+			InferenceRequest head = waiting.get(0);
+			int tokens = head.getCachedTokens();
+			if (pool.blocksFor(tokens) > pool.getTotalBlocks()) {
+				waiting.remove(0);
+				head.setCachedTokens(0);
+				releaseOf(head);
+				service.finish(head, RequestState.REJECTED, OutcomeReason.PROMPT_DOES_NOT_FIT);
+				continue;
+			}
+			if (!pool.reserve(head.getRequestId(), tokens)) {
+				cacheRefusals++;
+				break;
+			}
+			waiting.remove(0);
+			head.addQueueingTime(clock - head.getLastQueueEntryTime());
+			joinBatch(head);
+			if (head.getState().isTerminal())
+				continue;
+		}
+		if (startDecodeIteration())
+			return;
+		if (running.isEmpty()) {
+			chargeIdleUntil(clock);
+			return;
+		}
+		stalledSteps++;
+		chargeIdleUntil(clock);
 	}
 
 	/**
@@ -432,8 +510,12 @@ public class ReplicaServer extends SimEntity {
 	 */
 	protected void joinBatch(InferenceRequest request) {
 		prefilling = null;
-		if (request.getState() == RequestState.PREFILLING)
+		// A prompt that finished prefilling here moves PREFILLING to DECODING; a sequence handed
+		// over by a prefill instance arrives QUEUED with its cache already reserved, and joins the
+		// batch without a prefill of its own.
+		if (request.getState() == RequestState.PREFILLING || request.getState() == RequestState.QUEUED)
 			request.transitionTo(RequestState.DECODING);
+		pendingWorkByRequest.remove(request.getRequestId());
 		request.setAllocatedBlocks(pool.allocatedBlocks(request.getRequestId()));
 		running.put(request.getRequestId(), request);
 		if (request.getGeneratedTokens() == 0)
@@ -692,9 +774,14 @@ public class ReplicaServer extends SimEntity {
 	 */
 	protected double predictedWaitingWork(InferenceRequest request) {
 		int prompt = request.getInputTokens();
-		double prefill = cost.prefillStep(model, device, prompt, 0).seconds();
 		double perToken = cost.decodeIteration(model, device, new DecodeBatch(1, prompt + 1, prompt + 1)).seconds();
 		int tokens = Math.max(0, Math.min(request.getPredictedOutputTokens(), request.getMaxOutputTokens()) - 1);
+		// A decode replica inherits the prompt cache, so the work it still owes a waiting request
+		// is the remaining tokens alone; charging it a prefill would overstate its load and steer
+		// routing away from the instances that are the cheapest place to finish a sequence.
+		if (spec.getRole() == ReplicaSpec.Role.DECODE)
+			return perToken * tokens;
+		double prefill = cost.prefillStep(model, device, prompt, 0).seconds();
 		return prefill + perToken * tokens;
 	}
 
@@ -730,8 +817,8 @@ public class ReplicaServer extends SimEntity {
 		double pending = 0;
 		for (double work : pendingWorkByRequest.values())
 			pending += work;
-		return new ReplicaLoad(getId(), waiting.size(), running.size(), pool.freeTokens(), pool.capacityTokens(),
-				pending);
+		return new ReplicaLoad(getId(), device.getId(), device.getDeviceType(), spec.getMaxBatchSize(), waiting.size(),
+				running.size(), pool.freeTokens(), pool.capacityTokens(), pending);
 	}
 
 	/**
@@ -818,6 +905,20 @@ public class ReplicaServer extends SimEntity {
 	}
 
 	/**
+	 * Returns the bearer the traffic of this replica queues on.
+	 * <p>
+	 * The service consults it twice: before the queueing step, to hold the request for the time its
+	 * prompt needs to reach the device, and when a response ends, to charge the tokens travelling
+	 * back. A {@code null} answer means the deployment assumes the clients are attached to the
+	 * device itself.
+	 *
+	 * @return the access link, {@code null} when the replica is not reached over one
+	 */
+	public AccessLink getLink() {
+		return link;
+	}
+
+	/**
 	 * Returns the deployment limits of the replica: the batch cap, the prefill chunk shape, the
 	 * context window and the preemption order the serving loop reads.
 	 *
@@ -825,6 +926,17 @@ public class ReplicaServer extends SimEntity {
 	 */
 	public ReplicaSpec getSpec() {
 		return spec;
+	}
+
+	/**
+	 * Returns the phase of serving this replica is responsible for, which the serving loop reads to
+	 * decide whether it prefills, decodes or does both.
+	 *
+	 * @return the role, {@link ReplicaSpec.Role#COLOCATED} for every replica of an unsplit
+	 *         deployment
+	 */
+	public ReplicaSpec.Role getRole() {
+		return spec.getRole();
 	}
 
 	/**

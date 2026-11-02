@@ -1,0 +1,13 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex10-least-predicted-work,1,interactive,ttft,236,234,236,236,1.0
+ex10-least-predicted-work,1,interactive,e2e,236,234,236,234,0.9915254237288136
+ex10-least-predicted-work,1,interactive,tpot,236,234,236,236,1.0
+ex10-least-predicted-work,1,interactive,all,236,234,236,234,0.9915254237288136
+ex10-least-predicted-work,2,interactive,ttft,211,209,211,210,0.995260663507109
+ex10-least-predicted-work,2,interactive,e2e,211,209,211,209,0.990521327014218
+ex10-least-predicted-work,2,interactive,tpot,211,209,210,210,1.0
+ex10-least-predicted-work,2,interactive,all,211,209,211,209,0.990521327014218
+ex10-least-predicted-work,3,interactive,ttft,239,238,239,239,1.0
+ex10-least-predicted-work,3,interactive,e2e,239,238,239,238,0.99581589958159
+ex10-least-predicted-work,3,interactive,tpot,239,238,239,239,1.0
+ex10-least-predicted-work,3,interactive,all,239,238,239,238,0.99581589958159

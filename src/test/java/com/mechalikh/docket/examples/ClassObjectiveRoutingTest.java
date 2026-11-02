@@ -63,7 +63,7 @@ class ClassObjectiveRoutingTest {
 	}
 
 	private static ReplicaLoad load(int id, int waiting, int freeCache, double pendingWork) {
-		return new ReplicaLoad(id, waiting, 0, freeCache, 1_000_000, pendingWork);
+		return new ReplicaLoad(id, "device-" + id, "test-tier", 64, waiting, 0, freeCache, 1_000_000, pendingWork);
 	}
 
 	private static InferenceRequest request(String serviceClass) {

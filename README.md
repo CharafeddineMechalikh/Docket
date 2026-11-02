@@ -60,19 +60,26 @@ reproduce.
 
 ## Scope and status
 
-This is Stage 1 of the project. It covers one deterministic, single-node deployment and stops
+This is Stage 1 of the project. It covers one deterministic deployment of one model and stops
 there.
 
 Supported today:
 
-- one device type shared by all replicas, with roofline-limited prefill and decode;
-- several replicas of that device (`replicas.count`), with routing across them;
+- one or more device profiles in one deployment, from a phone-class accelerator to a datacenter
+  card, each with roofline-limited prefill and decode;
+- several replicas, cloned from one device template (`replicas.count`) or drawn one per machine from
+  a fleet (`replicas`), with routing across them and per-machine serving limits;
+- one access link per bearer, a first-in first-out store-and-forward queue in each direction,
+  charged on the prompt and on the response;
 - continuous batching with a sequence ceiling and a per-step token ceiling;
 - chunked prefill, so a long prompt can be interleaved with running decodes;
 - a paged KV cache with whole-block round-up, admission guards and cache accounting;
 - preemption with recompute, with three victim orders;
+- prefill/decode disaggregation onto separate, possibly heterogeneous, device pools, with the
+  key-value hand-off charged onto a store-and-forward fabric between the pools, or made instant when
+  the scenario names none; colocated serving remains the default;
 - per-request metrics: TTFT, TPOT, mean and max inter-token latency, end-to-end, queueing,
-  prefill and decode time;
+  prefill, decode, uplink and downlink time;
 - energy from a two-level power model (idle plus active), integrated over simulated time;
 - per-service-class SLO attainment and goodput;
 - five arrival patterns, sixteen length distributions and CSV trace replay, with four public serving
@@ -81,10 +88,16 @@ Supported today:
 
 Not in this stage:
 
-- multi-GPU or multi-node topologies, tensor or pipeline parallelism;
-- disaggregated prefill and decode on separate pools;
+- a device shared by two replicas, or a general network between the serving machines: the access
+  link models the hop from the client to the site that answers, and the disaggregation fabric carries
+  only the one prefill-to-decode key-value hand-off, not traffic between arbitrary machines;
+- multi-hop routes, mobile movement, or radio effects such as interference and retransmission;
+- multi-GPU or multi-node parallelism of one model, tensor or pipeline parallelism;
+- disaggregation across physical nodes: the two pools share one simulated site, so the hand-off is a
+  modelled queue on an invented fabric, not a measured inter-node hop;
 - calibration of the roofline or power model against an accelerator, or of power against any
-  engine (the laptop-CPU calibration covers service time on that CPU only);
+  engine (the laptop-CPU calibration covers service time on that CPU only), and calibration of a
+  bearer against a measurement campaign;
 - speculative decoding, prefix caching across requests, or quantized-kernel modelling beyond the
   scalar byte width.
 
@@ -257,6 +270,7 @@ flowchart LR
   CLI[CLI] --> CFG[config: Scenario and Settings]
   CFG --> ENG[engine: InferenceService]
   ENG --> WS[WorkloadSource]
+  ENG --> NET[network: AccessLink and LinkProfile]
   ENG --> RS[ReplicaServer]
   RS --> POL[policy: admission, routing, scheduling]
   RS --> MEM[memory: GpuMemoryManager and KvCachePool]
@@ -268,9 +282,11 @@ flowchart LR
 ```
 
 `InferenceService` is the PureEdgeSim entity that owns the replicas and the workload source.
-`WorkloadSource` schedules one arrival event per request. Each arrival is offered to the routing
-policy, then to the admission policy, then either refused or placed in a replica queue.
-`ReplicaServer` runs the decode loop: it admits the head of the queue when the batch has room,
+`WorkloadSource` schedules one arrival event per request. Each arrival is offered to the admission
+policy, then to the routing policy, then either refused or placed in a replica queue. When the
+device names a bearer, the placement is a promise rather than a hand-over: the prompt waits on the
+`AccessLink` ledger until the queue releases it, and only then enters the replica. `ReplicaServer`
+runs the decode loop: it admits the head of the queue when the batch has room,
 prefills it (in chunks or in one step), and folds its decode into the running batch on every
 iteration. `Report` aggregates the per-request records into the artifacts.
 
@@ -280,17 +296,22 @@ iteration. `Report` aggregates the per-request records into the artifacts.
 flowchart LR
   A[Arrive] --> B[Admission]
   B -->|refused| R[Rejected]
-  B -->|admitted| C[Waiting queue]
+  B -->|admitted| L[Uplink, when a bearer is declared]
+  L --> C[Waiting queue]
+  B -->|admitted, no bearer| C
   C --> D[Prefill]
   D --> E[Decode steps]
   E -->|cache full| F[Preempt]
   F --> C
   E --> G[Complete]
+  G -->|the answer crosses back| L2[Downlink]
 ```
 
 State moves are guarded: a request cannot be queued and decoding at once, and a terminal state
 cannot be entered twice. A preempted request returns to the queue and its prompt is recomputed on
-the way back, which is why its life-total queueing time can exceed its TTFT.
+the way back, which is why its life-total queueing time can exceed its TTFT. A request whose prompt
+is still on a bearer when the horizon passes is recorded as timed out at the horizon, with the
+flight it was owed in `uplink_s`; nothing that was released is allowed to disappear.
 
 ### What one step costs
 
@@ -378,8 +399,8 @@ reported as a warning after the scenario loads, so a misspelled setting does not
 what the run means.
 
 Units are part of the key names. Memory is configured in GiB (binary), following how a runtime
-reports device capacity. Bandwidth and throughput are decimal (GB/s, TFLOPS), following how a
-datasheet writes them.
+reports device capacity. Bandwidth, throughput and link capacity are decimal (GB/s, TFLOPS, Mbps),
+following how a datasheet writes them.
 
 Values may be overridden on the command line with `-D key=value`, which is how the sweep script
 changes one knob at a time.
@@ -441,15 +462,33 @@ invocation.
 | `device.kernelLaunchOverheadMs` | `0` | Fixed per-step launch cost |
 | `device.provenance` | `synthetic` | `synthetic`, `literature` or `measured` |
 | `device.note` | empty | Free-form note echoed into the artifacts |
+| `devices` | empty | Profile names for a fleet, comma separated; each machine is then read from `device.<profile>.<key>` |
+| `device.<profile>.id` | the profile name | Optional in a profile block, required in the flat form |
+| `device.<profile>.link` | empty | Name of the `link.<name>` block its clients reach it through |
 
 At least one `device.achievedTFLOPS.*` entry is mandatory, and it must cover the model's precision:
-the execution model divides by an achieved value and refuses to divide by a peak one.
+the execution model divides by an achieved value and refuses to divide by a peak one. Every profile
+of a fleet is checked on its own, and the two forms do not mix: `devices` alongside a flat
+`device.id` is refused, because a deployment that read some figures from a block and others from a
+profile would describe a machine no file states.
+
+```properties
+devices=phone,server
+device.phone.memoryGiB=12
+device.phone.memoryBandwidthGBs=68
+device.phone.achievedTFLOPS.fp16=0.045
+device.phone.link=cellular
+device.server.memoryGiB=24
+device.server.memoryBandwidthGBs=700
+device.server.achievedTFLOPS.fp16=100
+```
 
 ### `replicas.*` and `replica.*`
 
 | Key | Default | Meaning |
 |---|---|---|
 | `replicas.count` | `1` | Identical replicas, each on its own device instance |
+| `replicas` | empty | One entry per replica, each a profile from `devices`; a repeated entry is another machine of that kind |
 | `replica.maxBatchSize` | `64` | Largest number of sequences in one decode iteration |
 | `replica.maxPrefillChunkTokens` | `2048` | Tokens one prefill step may read; `0` reads the whole prompt |
 | `replica.allowPreemption` | `true` | Whether a full cache may suspend a running sequence |
@@ -458,9 +497,88 @@ the execution model divides by an achieved value and refuses to divide by a peak
 | `replica.tokensPerBlock` | `16` | Tokens per cache block, the allocation granularity |
 | `replica.runtimeOverheadGiB` | `0` | Bytes the runtime keeps beyond the unusable fraction |
 | `replica.reservedActivationSlots` | `0` | Sequences whose activations are reserved out of the KV budget |
+| `replica.<profile>.<key>` | the `replica.*` value | Per-machine limit in a fleet, for any key above except the first two |
 
 Two replicas never share a device instance: each would count the whole memory as its own. Use
 `replicas.count` for identical devices, not to model two processes on one card.
+
+A fleet sets `replicas` instead, and gives its machines their own limits, because a phone runs one
+sequence at a time while a server batches dozens:
+
+```properties
+replicas=phone,server,server
+replica.phone.maxBatchSize=1
+replica.server.maxBatchSize=64
+```
+
+The two servers become devices `server-1` and `server-2`, so a cache refusal names the machine that
+ran out rather than the kind of machine. `replicas` and `replicas.count` together are refused, and so
+is an override key outside the list above, which would otherwise leave a limit silently at the fleet
+default.
+
+### `link.<name>.*`
+
+A device block that names a bearer charges one network hop between its clients and its replicas.
+Each direction is a first-in first-out store-and-forward queue on the raw capacity, the rule
+PureEdgeSim applies to a file transfer, and the two directions are independent, as they are on a
+full-duplex bearer.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `link.<name>.capacityMbps` | required | Raw bearer, decimal Mbps |
+| `link.<name>.latencyMs` | `0` | One-way propagation delay |
+| `link.<name>.bytesPerInputToken` | `4` | Bytes one prompt token costs on the uplink |
+| `link.<name>.bytesPerOutputToken` | `4` | Bytes one generated token costs on the downlink |
+| `link.<name>.provenance` | `synthetic` | `synthetic`, `literature` or `measured`; counts toward the overall label |
+| `link.<name>.note` | empty | Free-form note echoed into the artifacts |
+
+```properties
+link.cellular.capacityMbps=20
+link.cellular.latencyMs=40
+link.cellular.provenance=literature
+```
+
+The prompt travels as one message and the answer as one message at the instant the last token is
+produced, which is the non-streaming reading of the API and the conservative one: a stream that
+sends each token as it appears empties no earlier. Congestion therefore shows up as waiting time for
+the requests behind, not as a slower service rate for everyone. Two devices naming one link share
+one queue, so an access point serving three phones is one bottleneck.
+
+`uplink_s` and `downlink_s` report the two flights per request, and `delivery_time_s` is the device
+instant plus the return. `ttft_s` and `e2e_s` are timed from the release of the request, so the
+uplink is already inside them. A scenario that names no bearer charges no network time and produces
+the rows it always did.
+
+### `deployment.*`
+
+By default every replica runs both phases. A deployment can instead split them onto separate device
+pools: the first `devices` profile prefills and the second decodes, so a request prefills on the
+first pool, hands its key-value cache to the second, and generates there.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `deployment.disaggregated` | `false` | Split prefill from decode across two pools |
+| `deployment.prefillReplicas` | required when disaggregated | Replicas on the first profile, at least 1 |
+| `deployment.decodeReplicas` | required when disaggregated | Replicas on the second profile, at least 1 |
+| `deployment.fabric` | empty | Name of a `link.<name>` block the hand-off travels over; empty makes it instant |
+
+```properties
+deployment.disaggregated=true
+deployment.prefillReplicas=1
+deployment.decodeReplicas=3
+deployment.fabric=fabric
+link.fabric.capacityMbps=400000
+link.fabric.latencyMs=0.5
+```
+
+The fabric reuses a bearer block: the hand-off moves `cachedTokens x kvBytesPerToken` bytes at that
+link's capacity and queueing rule, so a cache still waits behind the transfers ahead of it. A
+disaggregated deployment is refused if it also sets `replicas` or `replicas.count`, needs at least
+one replica of each role, and may run its two pools on different hardware, each keeping its own
+`replica.<profile>.maxBatchSize`. The two pools share one simulated site, so the hand-off is a
+modelled queue on an invented fabric, not a measured inter-node hop. See
+[examples/13-prefill-decode-disaggregation](examples/13-prefill-decode-disaggregation/README.md)
+for a measured comparison against colocated serving.
 
 ### `workload.*`
 
@@ -654,11 +772,12 @@ Scheduling orders the waiting queue of one replica.
 The last one is an oracle baseline: it shows what a perfect length predictor would buy, and it is
 not deployable.
 
-Writing your own is supported without touching the engine. The nine worked examples under
-[examples/](examples/README.md) each define a policy, pair it with the built-in baseline on the same
-workload and report what changed. They cover deadline-aware ordering, class reservations, class
-objectives, session affinity, weighted load, composite admission, abort on miss, length-aware
-routing under saturation and a hand-written template clone of `fcfs`.
+Writing your own is supported without touching the engine. The thirteen worked examples under
+[examples/](examples/README.md) pair a policy or a deployment choice with the built-in baseline on
+the same workload and report what changed. They cover deadline-aware ordering, class reservations,
+class objectives, session affinity, weighted load, composite admission, abort on miss, length-aware
+routing under saturation, tiered and bearer-aware placement, fleet consolidation, a hand-written
+template clone of `fcfs`, and a prefill/decode disaggregation measured against colocated serving.
 
 ## Command line
 
@@ -711,7 +830,7 @@ Every run writes under `<experiment.outputDir>/<experiment.name>/`:
 summary.csv           one row per repetition: aggregates and per-metric summaries
 slo.csv               attainment per service class and objective, one row per combination
 config.txt            the resolved scenario, the provenance of the weakest input, and caveats
-rep01/requests.csv    one row per request, 50 columns
+rep01/requests.csv    one row per request, 53 columns
 rep01/requests.jsonl  the same rows as JSON lines
 rep01/samples.csv     periodic resource samples, one row per replica and instant
 rep02/...
@@ -732,16 +851,17 @@ aggregates (`device_utilisation`, `replicas`, `mean_batch`, `peak_batch`, `decod
 
 ### `requests.csv`
 
-One row per terminal request, 50 columns:
+One row per terminal request, 53 columns:
 
 | Group | Columns |
 |---|---|
 | Provenance | `experiment`, `seed`, `repetition`, `cost_model`, `cost_provenance`, `cost_calibrated`, `model_provenance`, `device_provenance` |
 | Identity | `request_id`, `model_id`, `replica_id`, `tenant_id`, `service_class`, `priority`, `session_id` |
-| Timeline | `arrival_time_s`, `admitted_time_s`, `queue_entry_time_s`, `prefill_start_time_s`, `first_token_time_s`, `last_token_time_s`, `terminal_time_s` |
+| Timeline | `arrival_time_s`, `admitted_time_s`, `queue_entry_time_s`, `prefill_start_time_s`, `first_token_time_s`, `last_token_time_s`, `terminal_time_s`, `delivery_time_s` |
 | Outcome | `final_state`, `outcome_reason` |
 | Work | `input_tokens`, `output_tokens_requested`, `output_tokens_generated`, `predicted_output_tokens`, `cached_tokens`, `allocated_blocks` |
 | Latency | `ttft_s`, `tpot_s`, `mean_itl_s`, `max_itl_s`, `e2e_s`, `queueing_s`, `prefill_s`, `decode_s` |
+| Access link | `uplink_s`, `downlink_s` |
 | Energy | `energy_j`, `energy_wh` |
 | Preemption | `preemptions` |
 | Targets | `ttft_target_s`, `e2e_target_s`, `tpot_target_s`, `cancellation_time_s` |
@@ -750,7 +870,12 @@ One row per terminal request, 50 columns:
 
 Durations are measured from arrival, except `prefill_s` and `decode_s`, which measure the work
 itself. A request that never reached a phase carries an empty cell or `NaN` there, rather than a
-zero that would read as instantaneous.
+zero that would read as instantaneous. `uplink_s` and `downlink_s` are the time the prompt and the
+response spent on the access link, and `delivery_time_s` the instant the client held the whole
+answer; a scenario that names no link reports zeros, because assuming no link is the same as a link
+that costs nothing. The two durations are not added to `ttft_s` or `e2e_s` a second time: a request
+is timed from the instant its client released it, so the prompt already crossed the link inside the
+TTFT, and `e2e_s` stops at the token the device produced last.
 
 ### `samples.csv`
 
@@ -886,14 +1011,14 @@ The suite runs on JUnit 5 against the real engine, with no stubs and no simulate
 
 | Layer | Tests | What it establishes |
 |---|---|---|
-| Unit | 78 | Request lifecycle and latency math, the roofline model against hand-computed anchors, paged-cache rounding and refusals, the energy integral, percentile and SLO helpers, the strict settings reader |
-| Integration | 6 | The same seed reproduces a run, a different repetition salt changes it, utilisation rises with offered load, and a trace whose suspended prefills fill the cache still completes every request |
+| Unit | 147 | Request lifecycle and latency math, the roofline model against hand-computed anchors, paged-cache rounding and refusals, the energy integral, percentile and SLO helpers, the strict settings reader, the two device-fleet forms and their error paths, the bearer arithmetic and its queue, and the prefill/decode hand-off onto a disaggregated pool with its instant and queued fabric forms |
+| Integration | 19 | The same seed reproduces a run, a different repetition salt changes it, utilisation rises with offered load, a trace whose suspended prefills fill the cache still completes every request, an access link delivers each prompt exactly when its queue releases it, and a disaggregated deployment prefills on one pool, transfers the cache and decodes on the other |
 | Invariant | 2 | Nineteen assertions re-derive the accounting from the exposed counters of a finished run |
 | Regression | 3 | The two scenarios are pinned to freshly measured goldens |
 | Command line | 16 | Exit codes, `-D` overrides, artifact layout, the unused-key warning, JSON quoting |
-| Examples | 35 | The class-loading hook and its three error paths, each example policy against a hand-built load snapshot, and every example scenario loading and running |
+| Examples | 55 | The class-loading hook and its three error paths, each example policy against a hand-built load snapshot including the tier order and budget guard of the edge-placement example, the prompt-size crossover of the offloading example and the pack-onto-the-fullest rule and its batch cap of the consolidation example, every example scenario loading and running, and the disaggregation example's sibling scenarios splitting their deployment flag |
 
-Total: 140 tests. A full run takes about fifteen seconds on the development machine.
+Total: 242 tests. A full run takes about twenty seconds on the development machine.
 
 The invariant layer is the important one for published results. The result object verifies itself
 when it is built: every arrived request is terminal exactly once, completed requests do not
@@ -911,7 +1036,7 @@ Docket/
 ├── README.md
 ├── LICENSE                       GPL-3.0
 ├── scenarios/                    the two committed, runnable scenarios
-├── examples/                     nine policy examples, their scenarios, tests and results
+├── examples/                     thirteen worked examples, their scenarios, tests and results
 │   ├── README.md                 the index and the measured headline of each example
 │   ├── common.sh                 classpath and run helpers shared by the example scripts
 │   ├── data/                     the generated SLA and session workloads
@@ -929,6 +1054,7 @@ Docket/
     │   ├── config/               Settings, Scenario and TraceLoader
     │   ├── domain/               request, model, device, provenance, states
     │   ├── engine/               service, replica loop, workload plan and source
+    │   ├── network/              bearer profile and its two-direction queue ledger
     │   ├── policy/               admission, routing and scheduling strategies
     │   ├── memory/               memory split and paged KV pool
     │   ├── cost/                 roofline model and its estimate
@@ -937,7 +1063,7 @@ Docket/
     │   └── experiment/           runner, run result and report
     └── test/java/com/mechalikh/docket/
         ├── unit/ integration/ invariant/ regression/ cli/ support/
-        └── examples/             the nine example policies and their scenarios
+        └── examples/             the thirteen example scenarios and their tests
 ```
 
 `configs/` and `results/` are placeholders kept in the tree for the next stage; they are not used
@@ -972,8 +1098,8 @@ sum correctly fails the build.
 
 ## Roadmap
 
-`[x]` shipped in 1.0.1, `[ ]` not started. Ordered by what would most improve the evidence, not by
-effort.
+`[x]` shipped, `[ ]` not started. Ordered by what would most improve the evidence, not by
+effort. Items marked `1.1` are in the build that follows the 1.0.1 release.
 
 ### Stage 1, shipped
 
@@ -989,28 +1115,44 @@ effort.
       each 2,000 requests long.
 - [x] Per-class SLO targets in a trace scenario, so a replay reports measured goodput
       (0.8175 on the Qwen objectives run) instead of not applicable.
-- [x] Nine worked policy examples, each with its own tests and measured result.
+- [x] Thirteen worked examples, each with its own tests and measured result.
 - [x] A strict properties loader, a CLI with exit codes, and CSV, JSONL and console artifacts.
-- [x] Reproducible repetitions and 146 tests, including an accounting invariant per run.
+- [x] Reproducible repetitions and 242 tests, including an accounting invariant per run.
+- [x] `1.1` A fleet of unlike device profiles, one replica per machine, each with its own serving
+      limits, so a phone and a datacenter card can answer the same model.
+- [x] `1.1` One access link per bearer, a first-in first-out store-and-forward queue in each
+      direction, charged on the prompt and on the response and reported as its own columns.
+- [x] `1.1` Prefill/decode disaggregation onto separate, possibly heterogeneous, pools, with the
+      key-value hand-off queued on a fabric between the pools or made instant when none is named,
+      measured against colocated serving in Example 13. The two pools still share one simulated site,
+      so the hand-off is a modelled queue, not a measured inter-node hop.
 
 ### Where the project stands
 
-Stage 1 answers one question about one device: what happens, in seconds, when arrivals,
-batching, the KV pool and preemption meet at these limits. It does that without a GPU and with a
-deterministic answer a reviewer can reproduce. Two boundaries hold it in place.
+Stage 1 answers one question about one deployment: what happens, in seconds, when arrivals,
+batching, the KV pool, preemption and the hop from the client meet at these limits. It does that
+without a GPU and with a deterministic answer a reviewer can reproduce. Two boundaries hold it in
+place.
 
 The numbers describe mechanisms, not hardware. The arrival process comes from real traces, but
 the latency, throughput and energy per token come from coefficients chosen by hand. Until the
 first item below is done, no result here, including the trace replays, is a statement about a
 deployment.
 
-The engine underneath is used narrowly. Of PureEdgeSim 6.0, Docket imports only
-`simulationengine` (the clock, the event queue and `SimEntity`) and `distribution` (the seeded
-samplers). The scenario layer, the datacenter and network models, the task orchestrator and the
-energy models are not used: Docket has its own strict settings loader, its own power model and its
+The engine underneath is used narrowly but genuinely. Of PureEdgeSim 6.1, Docket imports four
+packages: `simulationengine` (the clock, the event queue and `SimEntity`), `distribution` (the
+seeded samplers), and the two bases its own components extend, `AbstractQueueElement` from
+`simulationengine` and `LinkProfile` from `network`, plus `EnergyModelComputingNode` from `energy`.
+`InferenceRequest` inherits the queue ordering the engine applies to its own tasks (a time key
+broken by insertion serial), `LinkProfile` stores its bearer capacity and propagation time in the
+engine's link profile, and `GpuPowerModel` reads its idle and active watts from the engine's node
+power model. What is not used is the scenario layer, the datacenter and network models and the task
+orchestrator: Docket has its own strict settings loader, its own power accounting in joules and its
 own request lifecycle, because a serving replica batching tokens step by step is not a task graph.
-Multi-device work is the point at which that choice is worth revisiting, and that is deliberate
-about where the cost lands.
+The access link follows that same line. It borrows the store-and-forward rule a `NetworkLink` of
+PureEdgeSim applies to a file transfer, and implements it as a ledger of two timestamps rather than
+as another entity, so a fleet of unlike devices costs the run no extra event for a prompt that is
+merely waiting.
 
 ### Next, evidence first
 
@@ -1019,13 +1161,12 @@ about where the cost lands.
 
 ### Later, scope
 
-- [ ] Multi-device placement: one replica per device or per node, with the link model carrying the
-      inter-node hop, and energy accounted per device rather than per type.
+- [ ] A link between the serving machines, not only between a client and its site: the bearer
+      exists and queues, so an inter-node hop is a second use of the same ledger, and the remaining
+      work is deciding which stage pays it.
 - [ ] Pipeline parallelism as a new entity: a pipeline group that owns an ordered list of stages,
       moves a request stage by stage, and accounts the bubbles. This breaks the one-step-at-a-time
       invariant of `ReplicaServer`, so it is a new component, not a flag.
-- [ ] Disaggregated prefill and decode on separate pools, with the KV transfer between them using
-      the inter-node link term.
 - [ ] Prefix caching across requests, so a shared prompt prefix is not recomputed and the session
       identifiers in the Qwen and Mooncake traces can be routed.
 - [ ] An HTTP or gRPC front end, so the simulator can sit behind a load generator.

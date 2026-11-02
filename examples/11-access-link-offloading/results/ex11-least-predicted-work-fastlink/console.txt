@@ -1,0 +1,44 @@
+Docket development build | experiment "ex11-least-predicted-work-fastlink"
+------------------------------------------------------------------------------
+simulated duration   : 240.000 s per repetition
+repetitions          : 3, seed 1
+model                : edge-chat (1000.0M parameters, none), provenance synthetic
+device               : 2 profiles: onsite, remote, provenance synthetic
+replicas             : 2
+network              : wan: 100.0 Mbps, 5.0 ms one way, 4/4 bytes per input/output token [synthetic]
+link time            : uplink mean 0.0052 s, p99 0.0053 s over 50 crossing(s), downlink mean 0.0051 s, p99 0.0051 s over 50 crossing(s)
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-predicted-work, scheduling=fcfs
+workload             : poisson, model edge-chat
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1             78        78   1.0000    0.0171    0.0550    1.3557   0.00296     1.0000     76.2  28475.43
+2             82        81   0.9878    0.0189    0.0554    1.2725   0.00296     0.9878     71.3  27967.45
+3             83        83   1.0000    0.0175    0.0454    1.2910   0.00295     1.0000     81.0  28582.43
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s            243    0.0206    0.0174    0.0396    0.0436    0.0548    0.0577 0.0206 +- 0.0002
+e2e_s             242    0.5742    0.5390    1.0490    1.1957    1.3254    1.4246 0.5748 +- 0.0179
+tpot_s            243    0.0024    0.0029    0.0029    0.0029    0.0030    0.0030 0.0024 +- 0.0001
+mean_itl_s        243    0.0024    0.0029    0.0029    0.0029    0.0030    0.0030 0.0024 +- 0.0001
+queueing_s        243    0.0000    0.0000    0.0000    0.0000    0.0003    0.0023 0.0000 +- 0.0000
+prefill_s         243    0.0196    0.0174    0.0396    0.0436    0.0548    0.0577 0.0196 +- 0.0003
+decode_s          243    0.5516    0.5143    1.0189    1.1785    1.2973    1.3945 0.5523 +- 0.0183
+
+mean over 3 repetition(s): completed 80.7 +- 1.5, goodput 0.9959 +- 0.0041, tokens/s 76.2 +- 2.8, utilisation 0.096 +- 0.001
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+interactive          243    1.0000    0.9959    1.0000    0.9959
+
+replica 0 (edge-chat on onsite): 90 prefill steps, 15117 iterations, batch mean 1.00 peak 1, preemptions 0, cache refusals 0, stalls 0, peak cache 0.3% of 28586 blocks, utilisation 19.0%, energy 15287.702 J
+replica 1 (edge-chat on remote): 20 prefill steps, 2886 iterations, batch mean 1.07 peak 2, preemptions 0, cache refusals 0, stalls 0, peak cache 0.1% of 101222 blocks, utilisation 0.8%, energy 13187.733 J
+
+Artifacts written under examples\11-access-link-offloading\results/ex11-least-predicted-work-fastlink

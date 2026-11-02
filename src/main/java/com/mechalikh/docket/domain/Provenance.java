@@ -59,12 +59,28 @@ public enum Provenance {
 	 * @throws IllegalArgumentException when the value names no known provenance
 	 */
 	public static Provenance parse(String value) {
+		return parse(value, null);
+	}
+
+	/**
+	 * Parses a provenance attribute and names the setting that wrote it when the value is unknown.
+	 * <p>
+	 * A scenario can hold several devices and bearers, so a refusal that only quotes the word the
+	 * reader typed leaves them to hunt for the line.
+	 *
+	 * @param value the raw attribute, case insensitive
+	 * @param key   the setting being read, {@code null} to keep the bare message
+	 * @return the matching provenance
+	 * @throws IllegalArgumentException when the value names no known provenance
+	 */
+	public static Provenance parse(String value, String key) {
 		if (value == null || value.trim().isEmpty())
 			return SYNTHETIC;
 		for (Provenance provenance : values())
 			if (provenance.label.equalsIgnoreCase(value.trim()))
 				return provenance;
-		throw new IllegalArgumentException("Unknown provenance \"" + value + "\", expected one of: "
-				+ SYNTHETIC.label + ", " + LITERATURE.label + ", " + MEASURED.label);
+		throw new IllegalArgumentException((key == null ? "" : "The setting \"" + key + "\" writes ")
+				+ "an unknown provenance \"" + value + "\", expected one of: " + SYNTHETIC.label + ", "
+				+ LITERATURE.label + ", " + MEASURED.label);
 	}
 }

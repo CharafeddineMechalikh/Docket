@@ -36,6 +36,12 @@ public final class ReplicaLoad {
 
 	/** Identifier of the replica. */
 	private final int replicaId;
+	/** Identifier of the device this replica runs on, distinct for every replica of a fleet. */
+	private final String deviceId;
+	/** Device family of the machine, the tier a placement policy can order replicas by. */
+	private final String tier;
+	/** Largest batch this replica may form, a per-machine limit in a heterogeneous fleet. */
+	private final int maxBatchSize;
 	/** Requests waiting for their prefill at this replica. */
 	private final int waitingRequests;
 	/** Sequences currently generating tokens on the device. */
@@ -51,14 +57,17 @@ public final class ReplicaLoad {
 	 * Describes the load of a replica.
 	 *
 	 * @param replicaId          the replica identifier
+	 * @param deviceId           the identifier of the device the replica runs on
+	 * @param tier               the device family, as the scenario declares it
+	 * @param maxBatchSize       the batch ceiling of this replica
 	 * @param waitingRequests    queued requests, zero or more
 	 * @param runningSequences   sequences decoding now, zero or more
 	 * @param freeCacheTokens    tokens the cache pool can still hand out
 	 * @param totalCacheTokens   cache capacity of the replica, in tokens
 	 * @param pendingWorkSeconds estimated work of the waiting requests, in seconds
 	 */
-	public ReplicaLoad(int replicaId, int waitingRequests, int runningSequences, int freeCacheTokens,
-			int totalCacheTokens, double pendingWorkSeconds) {
+	public ReplicaLoad(int replicaId, String deviceId, String tier, int maxBatchSize, int waitingRequests,
+			int runningSequences, int freeCacheTokens, int totalCacheTokens, double pendingWorkSeconds) {
 		if (waitingRequests < 0 || runningSequences < 0 || freeCacheTokens < 0)
 			throw new IllegalArgumentException("Replica " + replicaId + " reports a negative load");
 		if (totalCacheTokens < freeCacheTokens)
@@ -67,7 +76,12 @@ public final class ReplicaLoad {
 		if (pendingWorkSeconds < 0 || Double.isNaN(pendingWorkSeconds))
 			throw new IllegalArgumentException("Replica " + replicaId + " reports a pending work of "
 					+ pendingWorkSeconds + " s");
+		if (maxBatchSize < 1)
+			throw new IllegalArgumentException("Replica " + replicaId + " reports a batch ceiling of " + maxBatchSize);
 		this.replicaId = replicaId;
+		this.deviceId = deviceId == null ? "" : deviceId;
+		this.tier = tier == null ? "" : tier;
+		this.maxBatchSize = maxBatchSize;
 		this.waitingRequests = waitingRequests;
 		this.runningSequences = runningSequences;
 		this.freeCacheTokens = freeCacheTokens;
@@ -86,6 +100,40 @@ public final class ReplicaLoad {
 	 */
 	public int replicaId() {
 		return replicaId;
+	}
+
+	/**
+	 * Returns the identifier of the device the replica runs on.
+	 * <p>
+	 * A fleet gives every machine its own identifier, so this distinguishes two replicas of one
+	 * profile from one replica of two profiles.
+	 *
+	 * @return the device identifier
+	 */
+	public String deviceId() {
+		return deviceId;
+	}
+
+	/**
+	 * Returns the device family the scenario declared for this replica, which is how a placement
+	 * policy names tiers, for instance {@code edge-device} or {@code cloud-accelerator}.
+	 * <p>
+	 * The value is a label the scenario chose, not a property the simulator measures; it orders
+	 * machines only as far as the person who wrote the file said they should be ordered.
+	 *
+	 * @return the tier label
+	 */
+	public String tier() {
+		return tier;
+	}
+
+	/**
+	 * Returns the batch ceiling of this replica, which a heterogeneous fleet sets per device.
+	 *
+	 * @return sequences
+	 */
+	public int maxBatchSize() {
+		return maxBatchSize;
 	}
 
 	/**
@@ -177,9 +225,9 @@ public final class ReplicaLoad {
 	 */
 	@Override
 	public String toString() {
-		return "ReplicaLoad[" + replicaId + ", waiting " + waitingRequests + ", running " + runningSequences
-				+ ", free cache " + freeCacheTokens + "/" + totalCacheTokens + " tokens, pending "
-				+ String.format("%.3f", pendingWorkSeconds) + " s]";
+		return "ReplicaLoad[" + replicaId + " on " + deviceId + " (" + tier + "), waiting " + waitingRequests
+				+ ", running " + runningSequences + ", free cache " + freeCacheTokens + "/" + totalCacheTokens
+				+ " tokens, pending " + String.format("%.3f", pendingWorkSeconds) + " s]";
 	}
 
 	/**

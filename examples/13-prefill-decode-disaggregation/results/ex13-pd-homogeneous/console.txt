@@ -1,0 +1,44 @@
+Docket development build | experiment "ex13-pd-homogeneous"
+------------------------------------------------------------------------------
+simulated duration   : 300.000 s per repetition
+repetitions          : 3, seed 1
+model                : edge-chat (7000.0M parameters, none), provenance synthetic
+device               : gpu, provenance synthetic
+replicas             : 4
+cost model           : roofline-analytical, synthetic, NOT calibrated
+overall provenance   : synthetic
+policies             : admission=unlimited, routing=least-queued, scheduling=fcfs
+workload             : poisson, model edge-chat
+------------------------------------------------------------------------------
+WARNING roofline-analytical is analytical and uncalibrated: no measured timing of this model, device or backend was used, so durations are estimates of the hardware limits, not of a serving engine
+WARNING the achieved throughput of the device is used, never its published peak
+WARNING weights are charged once per step, which assumes a fused kernel; a backend that re-reads them per layer would be slower
+WARNING the cache is charged as a full read per step; a paged or sliding-window layout moves fewer bytes
+
+rep      offered completed  success  ttft p50  ttft p99   e2e p99   tpot p99  goodput  tokens/s energy J
+1           1455      1429   0.9821    0.1536    0.4916    7.4067   0.02160     0.9821    937.1 318544.33
+2           1493      1475   0.9879    0.1539    0.5211    7.6491   0.02169     0.9879    952.1 319372.24
+3           1446      1428   0.9876    0.1523    0.5695    7.6707   0.02171     0.9876    935.5 317612.01
+
+Pooled over every row of every repetition, and over the per-repetition means:
+metric              n      mean       p50       p90       p95       p99         max
+ttft_s           4392    0.1774    0.1533    0.3116    0.3704    0.5264    0.8987 0.1774 +- 0.0019
+e2e_s            4332    4.2553    4.0871    6.3675    6.8808    7.5972    8.3908 4.2556 +- 0.0151
+tpot_s           4392    0.0211    0.0211    0.0214    0.0215    0.0217    0.0219 0.0211 +- 0.0000
+mean_itl_s       4392    0.0211    0.0211    0.0214    0.0215    0.0217    0.0219 0.0211 +- 0.0000
+queueing_s       4394    0.0704    0.0202    0.1956    0.2611    0.4036    0.7592 0.0704 +- 0.0023
+prefill_s        4394    0.1046    0.0962    0.1643    0.1784    0.1999    0.2139 0.1046 +- 0.0007
+decode_s         4392    0.6139    0.5795    0.9693    1.0855    1.3354    2.4816 0.6140 +- 0.0057
+
+mean over 3 repetition(s): completed 1444.0 +- 15.5, goodput 0.9859 +- 0.0019, tokens/s 941.6 +- 5.3, utilisation 0.877 +- 0.002
+
+Service level objectives, over the requests that stated the objective:
+class            offered      ttft       e2e      tpot       all
+interactive         4394    0.9995    0.9859    1.0000    0.9859
+
+replica 0 (edge-chat on gpu-p1): 2795 prefill steps, 0 iterations, batch mean 0.00 peak 0, preemptions 0, cache refusals 0, stalls 0, peak cache 1.9% of 4997 blocks, utilisation 51.3%, energy 49133.817 J
+replica 1 (edge-chat on gpu-d1): 0 prefill steps, 14207 iterations, batch mean 6.83 peak 11, preemptions 0, cache refusals 0, stalls 0, peak cache 12.9% of 4997 blocks, utilisation 100.0%, energy 89961.286 J
+replica 2 (edge-chat on gpu-d2): 0 prefill steps, 14232 iterations, batch mean 6.57 peak 11, preemptions 0, cache refusals 0, stalls 0, peak cache 12.3% of 4997 blocks, utilisation 99.9%, energy 89923.153 J
+replica 3 (edge-chat on gpu-d3): 0 prefill steps, 14212 iterations, batch mean 6.27 peak 11, preemptions 0, cache refusals 0, stalls 0, peak cache 12.4% of 4997 blocks, utilisation 99.4%, energy 89526.078 J
+
+Artifacts written under examples\13-prefill-decode-disaggregation\results/ex13-pd-homogeneous

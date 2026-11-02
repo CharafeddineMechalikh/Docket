@@ -110,7 +110,7 @@ public class Experiment {
 		PureEdgeSim simulation = new PureEdgeSim();
 		InferenceService service = new InferenceService(simulation, scenario.getModel().getId(),
 				scenario.getReplicas(), scenario.getCost(), scenario.getAdmission(), scenario.getRouting(),
-				scenario.getScheduling(), recorder);
+				scenario.getScheduling(), recorder, scenario.getKvFabric());
 		WorkloadSource source = new WorkloadSource(simulation, plan, service);
 		RunController controller = new RunController(simulation, service, recorder,
 				scenario.getDurationSeconds(), scenario.getSamplingIntervalSeconds());
@@ -158,7 +158,7 @@ public class Experiment {
 		metadata.put("cost_provenance", scenario.getCost().provenance().label());
 		metadata.put("cost_calibrated", scenario.getCost().isCalibrated() ? "yes" : "no");
 		metadata.put("model_provenance", scenario.getModel().getProvenance().label());
-		metadata.put("device_provenance", scenario.getDevice().getProvenance().label());
+		metadata.put("device_provenance", scenario.deviceProvenance());
 		return metadata;
 	}
 

@@ -69,7 +69,11 @@ class DomainTest {
 	void onlyDecodeMayRepeatItself() {
 		assertTrue(RequestState.DECODING.canTransitionTo(RequestState.DECODING));
 		assertFalse(RequestState.PREFILLING.canTransitionTo(RequestState.PREFILLING));
-		assertFalse(RequestState.QUEUED.canTransitionTo(RequestState.DECODING));
+		// A sequence transferred in from a prefill instance is already cached, so the queue of a
+		// decode instance adopts it straight into decoding, while a queued prompt on a colocated or
+		// prefill instance still starts by prefilling.
+		assertTrue(RequestState.QUEUED.canTransitionTo(RequestState.DECODING));
+		assertTrue(RequestState.QUEUED.canTransitionTo(RequestState.PREFILLING));
 	}
 
 	@Test

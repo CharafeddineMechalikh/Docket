@@ -1,0 +1,13 @@
+experiment,repetition,service_class,objective,offered,completed,applicable,met,attainment
+ex12-consolidate-with-headroom,1,interactive,ttft,9568,9544,9568,9567,0.9998954849498328
+ex12-consolidate-with-headroom,1,interactive,e2e,9568,9544,9568,9544,0.9974916387959866
+ex12-consolidate-with-headroom,1,interactive,tpot,9568,9544,9567,9567,1.0
+ex12-consolidate-with-headroom,1,interactive,all,9568,9544,9568,9544,0.9974916387959866
+ex12-consolidate-with-headroom,2,interactive,ttft,9554,9541,9554,9554,1.0
+ex12-consolidate-with-headroom,2,interactive,e2e,9554,9541,9554,9541,0.9986393133765962
+ex12-consolidate-with-headroom,2,interactive,tpot,9554,9541,9554,9554,1.0
+ex12-consolidate-with-headroom,2,interactive,all,9554,9541,9554,9541,0.9986393133765962
+ex12-consolidate-with-headroom,3,interactive,ttft,9458,9443,9458,9458,1.0
+ex12-consolidate-with-headroom,3,interactive,e2e,9458,9443,9458,9443,0.9984140410234722
+ex12-consolidate-with-headroom,3,interactive,tpot,9458,9443,9458,9458,1.0
+ex12-consolidate-with-headroom,3,interactive,all,9458,9443,9458,9443,0.9984140410234722
