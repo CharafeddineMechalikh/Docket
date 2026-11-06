@@ -1202,7 +1202,7 @@ If you use it in academic work, cite the repository and the engine:
 ```bibtex
 @software{mechalikh_docket,
   author  = {Mechalikh, Charafeddine},
-  title   = {{Docket}: a discrete-event simulator for generative AI inference serving},
+  title   = {Docket: a discrete-event simulator for generative AI inference serving},
   year    = {2026},
   version = {1.0.1},
   url     = {https://github.com/CharafeddineMechalikh/Docket},
