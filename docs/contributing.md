@@ -64,10 +64,11 @@ the site silently if forgotten:
 - **Every `docs/*.md` needs YAML front matter.** Jekyll only turns a Markdown file into a page when it
   begins with a `---` block; a file without one is copied as a static file and never appears on the
   site. The manual home (`docs/README.md`) additionally sets `permalink: /docs/`.
-- **No `{{` or `{%` in any tracked Markdown.** Pages runs Liquid over every file before Markdown, so a
-  double brace (for example a BibTeX `{{Title}` capitalization guard) is a fatal build error, not a
-  rendering quirk. Because the site builds the whole repository, this applies to every README, not just
-  the docs.
+- **Never put a Liquid open delimiter in any tracked Markdown.** Pages runs Liquid over every file
+  before Markdown, so two adjacent left braces, or a left brace followed by a percent sign, open a
+  template tag; a BibTeX capitalization guard that starts with two braces is therefore a fatal build
+  error, not a rendering quirk. Because the site builds the whole repository, this applies to every
+  README, not just the docs.
 
 The left-hand navigation and the per-page table of contents are generated on the client by
 `_includes/head-custom.html`, which reads the `##` and `###` headings of the current page. Add a
