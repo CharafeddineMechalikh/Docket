@@ -1,0 +1,8 @@
+theme: jekyll-theme-cayman
+title: Docket
+description: A discrete-event simulator for generative-AI (LLM) inference serving.
+plugins:
+  - jekyll-relative-links
+  - jekyll-sitemap
+kramdown:
+  parse_block_html: true
