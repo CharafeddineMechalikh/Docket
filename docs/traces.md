@@ -1,3 +1,6 @@
+---
+description: "Replaying the public production traces (Azure, Qwen, Mooncake, BurstGPT) and reconciling the simulated result against the recorded one."
+---
 # Trace replay
 
 A workload can be generated from a distribution or replayed from a recorded trace. Replaying is how

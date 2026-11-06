@@ -1,3 +1,6 @@
+---
+description: "How to reproduce every number in the paper and the examples from the committed scenarios and artifacts."
+---
 # Reproducing results
 
 This page states how to build the simulator, run its tests, regenerate the measured numbers, and

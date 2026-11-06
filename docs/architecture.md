@@ -1,3 +1,6 @@
+---
+description: "How Docket works internally: the discrete-event engine, the replica loop, request states, and the extension seams into PureEdgeSim."
+---
 # Architecture
 
 This page describes how a run is assembled, how a request moves through it, and why the same

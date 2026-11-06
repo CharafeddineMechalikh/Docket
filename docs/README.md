@@ -1,3 +1,7 @@
+---
+description: "The Docket manual: architecture, cost model, memory, configuration, metrics, policies, trace replay and reproduction for the LLM inference simulator."
+permalink: /docs/
+---
 # Docket documentation
 
 The [README](../README.md) is the tour. These pages are the reference: each one covers a

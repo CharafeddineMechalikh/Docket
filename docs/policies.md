@@ -1,3 +1,6 @@
+---
+description: "The placement, admission, routing and scheduling policies Docket ships, and how to plug in a custom one."
+---
 # Policies
 
 Three decisions shape a run: whether a request enters the service (**admission**), which replica

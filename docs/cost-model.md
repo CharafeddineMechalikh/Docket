@@ -1,3 +1,6 @@
+---
+description: "The roofline cost model behind prefill and decode latency, continuous batching, and the coefficients measured against llama.cpp."
+---
 # Cost model
 
 The only implemented execution model is `roofline-analytical`. It turns a step description into

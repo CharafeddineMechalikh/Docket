@@ -1,3 +1,6 @@
+---
+description: "Every scenario property Docket reads: models, device profiles, deployment, arrival process, scheduling, access links, and SLO targets."
+---
 # Configuration
 
 A scenario is a UTF-8 properties file. This page lists every key, its default, its unit and the

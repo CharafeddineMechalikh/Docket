@@ -1,3 +1,6 @@
+---
+description: "How the paged KV cache, block rounding, memory-bound decode, and preemption with recompute are modelled."
+---
 # Memory and caching
 
 An LLM replica fails in a specific way: not by running out of flops, but by running out of memory

@@ -1,3 +1,6 @@
+---
+description: "What each output column and artifact means: latency, throughput, energy, SLO attainment, and the provenance label on every estimate."
+---
 # Metrics and artifacts
 
 This page defines every number the simulator reports, how service levels are accounted, and the
