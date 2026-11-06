@@ -175,6 +175,22 @@ public class ReplicaSpec {
 	 * disaggregated deployment assigned it a prefill or decode role.
 	 */
 	protected Role role = Role.COLOCATED;
+	/**
+	 * Whether a decode iteration verifies several proposed tokens at once instead of emitting one,
+	 * the speculative-decoding mechanism. Off by default, which leaves the decode loop emitting one
+	 * token per sequence per iteration exactly as it did before the mechanism existed.
+	 */
+	protected boolean speculativeDecoding = false;
+	/** Candidate tokens a draft model proposes per sequence per verification step, at least one. */
+	protected int draftTokens = 2;
+	/** Probability each proposed token is accepted, in {@code [0, 1)}. */
+	protected double acceptanceRate = 0.7;
+	/**
+	 * Whether a shared prompt prefix is reused instead of recomputed when a later request carries the
+	 * same prompt. The mechanism reads token content, so it only activates for requests that are
+	 * identical at {@code modelId, promptLength, session}; off by default.
+	 */
+	protected boolean prefixCache = false;
 
 	/**
 	 * Checks that the deployment can run.
@@ -209,6 +225,12 @@ public class ReplicaSpec {
 			throw new IllegalArgumentException("Replica of model \"" + model.getId()
 					+ "\": " + reservedActivationSlots + " activation slots are reserved but a batch may hold "
 					+ maxBatchSize + " sequences; reserve at least as many slots as the batch limit, or zero for none");
+		if (speculativeDecoding && draftTokens < 1)
+			throw new IllegalArgumentException("Replica of model \"" + model.getId()
+					+ "\": speculative decoding needs at least one draft token per step, found " + draftTokens);
+		if (speculativeDecoding && (acceptanceRate < 0 || acceptanceRate >= 1))
+			throw new IllegalArgumentException("Replica of model \"" + model.getId()
+					+ "\": the acceptance rate of speculative decoding must be in [0, 1), found " + acceptanceRate);
 	}
 
 	/**
@@ -522,6 +544,106 @@ public class ReplicaSpec {
 	}
 
 	/**
+	 * Returns whether the decode loop verifies several proposed tokens per iteration.
+	 *
+	 * @return {@code true} when speculative decoding is on
+	 */
+	public boolean isSpeculativeDecoding() {
+		return speculativeDecoding;
+	}
+
+	/**
+	 * Turns speculative decoding on or off.
+	 *
+	 * @param speculativeDecoding {@code true} to verify proposed tokens in parallel
+	 * @return this spec
+	 */
+	public ReplicaSpec setSpeculativeDecoding(boolean speculativeDecoding) {
+		this.speculativeDecoding = speculativeDecoding;
+		return this;
+	}
+
+	/**
+	 * Returns the number of candidate tokens a draft model proposes per sequence per step.
+	 *
+	 * @return draft tokens, at least one when the mechanism is on
+	 */
+	public int getDraftTokens() {
+		return draftTokens;
+	}
+
+	/**
+	 * Sets the number of candidate tokens proposed per sequence per verification step.
+	 *
+	 * @param draftTokens candidates beyond the guaranteed token, at least one
+	 * @return this spec
+	 */
+	public ReplicaSpec setDraftTokens(int draftTokens) {
+		this.draftTokens = draftTokens;
+		return this;
+	}
+
+	/**
+	 * Returns the per-token acceptance probability of the draft proposals.
+	 *
+	 * @return a rate in {@code [0, 1)}
+	 */
+	public double getAcceptanceRate() {
+		return acceptanceRate;
+	}
+
+	/**
+	 * Sets the per-token acceptance probability the verification step assumes.
+	 *
+	 * @param acceptanceRate a rate in {@code [0, 1)}
+	 * @return this spec
+	 */
+	public ReplicaSpec setAcceptanceRate(double acceptanceRate) {
+		this.acceptanceRate = acceptanceRate;
+		return this;
+	}
+
+	/**
+	 * Returns whether a shared prompt prefix is reused rather than recomputed.
+	 *
+	 * @return {@code true} when prefix reuse is on
+	 */
+	public boolean isPrefixCache() {
+		return prefixCache;
+	}
+
+	/**
+	 * Turns prompt-prefix reuse on or off.
+	 *
+	 * @param prefixCache {@code true} to reuse a shared prefix across identical requests
+	 * @return this spec
+	 */
+	public ReplicaSpec setPrefixCache(boolean prefixCache) {
+		this.prefixCache = prefixCache;
+		return this;
+	}
+
+	/**
+	 * Returns how many tokens one verification step emits per sequence on average, or one when
+	 * speculative decoding is off.
+	 * <p>
+	 * With {@code k} draft tokens accepted independently at probability {@code a}, a step keeps the
+	 * first rejected token and the bonus token, so the expected count is the truncated geometric sum
+	 * {@code (1 - a^(k+1)) / (1 - a)}. It is bounded by the {@code k + 1} candidates the step verifies,
+	 * and it is rounded to whole tokens because a step emits a whole number of them.
+	 *
+	 * @return expected tokens emitted per sequence per decode step, at least one
+	 */
+	public int acceptedTokensPerStep() {
+		if (!speculativeDecoding)
+			return 1;
+		int candidates = draftTokens + 1;
+		double expected = acceptanceRate >= 1 ? candidates : (1.0 - Math.pow(acceptanceRate, candidates))
+				/ (1.0 - acceptanceRate);
+		return Math.max(1, Math.min(candidates, (int) Math.round(expected)));
+	}
+
+	/**
 	 * Returns a one-line summary with the service, the model and device identifiers, and the
 	 * batch, chunk and preemption limits.
 	 *
@@ -531,6 +653,8 @@ public class ReplicaSpec {
 	public String toString() {
 		return "ReplicaSpec[" + serviceId + ", model=" + model.getId() + ", device=" + device.getId() + ", batch "
 				+ maxBatchSize + ", chunk " + maxPrefillChunkTokens + ", preemption " + victimOrder + ", role " + role
+				+ (speculativeDecoding ? ", speculative x" + acceptedTokensPerStep() : "")
+				+ (prefixCache ? ", prefix cache" : "")
 				+ (link == null ? "" : ", link " + link.getId()) + "]";
 	}
 }

@@ -192,9 +192,10 @@ Cautions that apply to every row above:
   invented gaps is a semi-synthetic workload, and the artifact should be read that way. Qwen and
   Mooncake do carry arrival instants, so their replays are not in this category.
 - **Prefix hashes are evidence, not input.** Qwen's and Mooncake's `hash_ids` describe the prefix
-  a caching engine could reuse. This simulator has no cross-request prefix cache, so the converter
-  keeps Qwen's `chat_id` as `session_id`, does not map `hash_ids`, and the replay does not use them
-  for scheduling.
+  a caching engine could reuse. The opt-in prefix cache (`replica.prefixCache`) keys reuse on model,
+  prompt length and session, not on the hash content, so the converter still keeps Qwen's `chat_id`
+  as `session_id` and does not map `hash_ids`; a replay that turns the cache on reuses only prompts
+  it can prove identical by that key, which is the safe direction for a published number.
 
 ## Checking a replay
 

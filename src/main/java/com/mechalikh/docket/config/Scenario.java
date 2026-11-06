@@ -238,6 +238,10 @@ public class Scenario {
 		model.setKvBytesPerScalar(
 				settings.number("model.kvBytesPerScalar", bytesPerScalar(model.getKvDataType())));
 		model.setQuantization(settings.text("model.quantization", "none"));
+		model.setQuantizedKernel(settings.flag("model.quantizedKernel", false));
+		model.setComputePrecision(settings.text("model.computePrecision", ""));
+		model.setDequantFlopsPerScalar(settings.number("model.dequantFlopsPerScalar", 0));
+		model.setComputeBytesPerScalar(settings.number("model.computeBytesPerScalar", 0));
 		model.setActivationBytesPerSequence(settings.number("model.activationBytesPerSequence", 0));
 		model.setActiveParameterFraction(settings.number("model.activeParameterFraction", 1));
 		model.setProvenance(Provenance.parse(settings.text("model.provenance", "synthetic"), "model.provenance"));
@@ -557,6 +561,10 @@ public class Scenario {
 		spec.setTokensPerBlock(settings.integer("replica.tokensPerBlock", 16));
 		spec.setRuntimeOverheadBytes(settings.bytesOrZero("replica.runtimeOverheadGiB", "GiB"));
 		spec.setReservedActivationSlots(settings.integer("replica.reservedActivationSlots", 0));
+		spec.setSpeculativeDecoding(settings.flag("replica.speculativeDecoding", false));
+		spec.setDraftTokens(settings.integer("replica.draftTokens", 2));
+		spec.setAcceptanceRate(settings.number("replica.acceptanceRate", 0.7));
+		spec.setPrefixCache(settings.flag("replica.prefixCache", false));
 		return spec;
 	}
 
@@ -604,10 +612,23 @@ public class Scenario {
 			case "reservedActivationSlots":
 				spec.setReservedActivationSlots(settings.integer(key));
 				break;
+			case "speculativeDecoding":
+				spec.setSpeculativeDecoding(settings.flag(key, spec.isSpeculativeDecoding()));
+				break;
+			case "draftTokens":
+				spec.setDraftTokens(settings.integer(key));
+				break;
+			case "acceptanceRate":
+				spec.setAcceptanceRate(settings.number(key));
+				break;
+			case "prefixCache":
+				spec.setPrefixCache(settings.flag(key, spec.isPrefixCache()));
+				break;
 			default:
 				throw new IllegalArgumentException("Unknown replica setting \"" + key
 						+ "\"; a profile overrides maxBatchSize, maxPrefillChunkTokens, allowPreemption, victimOrder, "
-						+ "abortOnDeadlineMiss, tokensPerBlock, runtimeOverheadGiB or reservedActivationSlots");
+						+ "abortOnDeadlineMiss, tokensPerBlock, runtimeOverheadGiB, reservedActivationSlots, "
+						+ "speculativeDecoding, draftTokens, acceptanceRate or prefixCache");
 			}
 		}
 	}
@@ -988,6 +1009,29 @@ public class Scenario {
 		if (!disaggregated && (prefill > 0 || decode > 0))
 			throw new IllegalArgumentException("A replica has a prefill or decode role but \"deployment.disaggregated\" "
 					+ "is off; set it to true to split the phases");
+		// Prefix reuse shrinks the prefill of a request on the device that holds the shared blocks.
+		// Under disaggregation the prompt is prefilled on one pool and its cache is handed to another,
+		// so the two mechanisms would describe where the shared prefix lives in two different ways; the
+		// combination is refused rather than guessed, and a split deployment keeps the full prefill.
+		if (disaggregated)
+			for (ReplicaSpec spec : replicas)
+				if (spec.isPrefixCache())
+					throw new IllegalArgumentException("Replica on device \"" + spec.getDevice().getId()
+							+ "\" turns prefixCache on, but disaggregated deployments hand the prompt cache between "
+							+ "pools; prefix reuse is modelled only for colocated deployments, so set "
+							+ "deployment.disaggregated=false or replica.prefixCache=false");
+		// A quantized kernel that computes at a precision wider than the weights needs the device to
+		// declare throughput at that precision, so a scenario cannot silently divide by the storage
+		// format's figure. The check mirrors the roofline's own lookup and fails at load time.
+		if (model.isQuantizedKernel()) {
+			String computePrecision = model.effectiveComputePrecision();
+			for (GpuProfile profile : deviceProfiles.values())
+				if (Double.isNaN(profile.getAchievedTeraFlops(computePrecision)))
+					throw new IllegalArgumentException("Model \"" + model.getId() + "\" runs a quantized kernel at "
+							+ computePrecision + " but device \"" + profile.getId() + "\" declares no achieved throughput "
+							+ "for that precision; declare device.achievedTFLOPS." + computePrecision + " or set "
+							+ "model.computePrecision to a precision the device lists");
+		}
 	}
 
 	/**
@@ -1151,7 +1195,50 @@ public class Scenario {
 			}
 		if (disaggregated)
 			shared.insert(0, disaggregationHeader());
+		String mechanisms = describeMechanisms();
+		if (!mechanisms.isEmpty())
+			shared.append(", ").append(mechanisms);
 		return shared.toString();
+	}
+
+	/**
+	 * Describes the mechanisms a deployment turns on beyond the serving defaults, for the deployment
+	 * line of the console and the configuration echo.
+	 * <p>
+	 * A run that emits several tokens per decode step, or reuses a shared prompt prefix, reads very
+	 * differently from the plain loop, so the header names the mechanism and the figure that drives it
+	 * instead of leaving a reader to infer it from a latency. When every replica keeps both off the
+	 * line stays empty and the deployment prints as it always did.
+	 *
+	 * @return a comma-separated description of the active mechanisms, empty when none are on
+	 */
+	private String describeMechanisms() {
+		StringBuilder parts = new StringBuilder();
+		boolean speculative = false;
+		int tokensPerStep = 1;
+		for (ReplicaSpec spec : replicas)
+			if (spec.isSpeculativeDecoding()) {
+				speculative = true;
+				tokensPerStep = Math.max(tokensPerStep, spec.acceptedTokensPerStep());
+			}
+		if (speculative)
+			parts.append("speculative decode x").append(tokensPerStep).append(" token/step");
+		boolean prefix = false;
+		for (ReplicaSpec spec : replicas)
+			if (spec.isPrefixCache())
+				prefix = true;
+		if (prefix) {
+			if (parts.length() > 0)
+				parts.append(", ");
+			parts.append("prefix reuse on");
+		}
+		if (model.isQuantizedKernel()) {
+			if (parts.length() > 0)
+				parts.append(", ");
+			parts.append("quantized kernel (store ").append(model.getPrecision()).append(", compute ")
+					.append(model.effectiveComputePrecision()).append(")");
+		}
+		return parts.toString();
 	}
 
 	/**

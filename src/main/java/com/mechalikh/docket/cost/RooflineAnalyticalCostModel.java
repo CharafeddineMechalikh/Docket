@@ -111,6 +111,49 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 	}
 
 	/**
+	 * Predicts the duration of one speculative-decoding verification step, in which every sequence in
+	 * the batch proposes {@code draftTokens} tokens and the target model checks them in parallel.
+	 * <p>
+	 * A verification step is not a plain decode step: each sequence advances {@code v = draftTokens +
+	 * 1} candidate positions at once, which is the same arithmetic as a small prefill over the running
+	 * context. The projection term therefore scales with {@code sequences * v}, and the attention term
+	 * reads each sequence's cached context for every one of the {@code v} positions plus the quadratic
+	 * self-attention among them. The cache write is charged for all {@code v} positions, since the
+	 * target model materialises a key and a value for each candidate before discarding the rejected
+	 * ones.
+	 * <p>
+	 * This method does not decide how many candidates are kept: that is the acceptance rate, a
+	 * property of the draft model the scheduler reads, not of the hardware. It reports the cost of the
+	 * step that verifies them.
+	 *
+	 * @param model      the served target model
+	 * @param device     the device executing the step
+	 * @param batch      the sequences taking part, carrying their cached contexts
+	 * @param draftTokens candidate tokens proposed per sequence beyond the one guaranteed, at least one
+	 * @return the predicted duration and its evidence
+	 */
+	@Override
+	public CostEstimate speculativeIteration(ModelProfile model, GpuProfile device, DecodeBatch batch, int draftTokens) {
+		validatePair(model, device);
+		if (batch == null)
+			throw new IllegalArgumentException("A speculative step needs the batch it processes");
+		if (draftTokens < 1)
+			throw new IllegalArgumentException("A speculative step verifies at least two positions, found " + draftTokens
+					+ " draft tokens");
+		int v = draftTokens + 1;
+
+		double projections = 2.0 * model.activeParameters() * batch.sequences() * v;
+		double attention = 4.0 * model.getLayers() * model.kvDimension()
+				* (v * (double) batch.totalContextTokens() + batch.sequences() * v * (v + 1.0) / 2.0);
+		double weights = model.weightBytes();
+		double cacheRead = model.kvBytesPerToken() * v * (double) batch.totalContextTokens();
+		double cacheWrite = model.kvBytesPerToken() * batch.sequences() * v;
+		double bytes = weights + cacheRead + cacheWrite + model.getActivationBytesPerSequence() * batch.sequences();
+		int stepTokens = batch.sequences() * v;
+		return score(model, device, projections + attention, bytes, stepTokens, batch);
+	}
+
+	/**
 	 * Returns the operations a prefill step performs.
 	 *
 	 * @param model              the served model
@@ -179,8 +222,13 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 	 */
 	protected CostEstimate score(ModelProfile model, GpuProfile device, double flops, double bytes, int stepTokens,
 			DecodeBatch batch) {
-		double computeSeconds = flops / device.flopsPerSecond(model.getPrecision());
-		double memorySeconds = bytes / device.getMemoryBandwidthBytesPerSecond();
+		// Quantized-kernel arithmetic, added only when the model opts into it. With the mechanism off
+		// the overhead and expansion are zero and the compute precision equals the storage precision,
+		// so the two lines reduce to the plain roofline this method computed before the mechanism.
+		double chargedFlops = flops + model.quantizationOverheadFlops();
+		double chargedBytes = bytes + model.quantizationExpansionBytes();
+		double computeSeconds = chargedFlops / device.flopsPerSecond(model.effectiveComputePrecision());
+		double memorySeconds = chargedBytes / device.getMemoryBandwidthBytesPerSecond();
 		double overhead = device.getKernelLaunchOverheadSeconds();
 		double seconds = Math.max(computeSeconds, memorySeconds) + overhead;
 		if (Double.isNaN(seconds) || Double.isInfinite(seconds) || seconds <= 0)
@@ -195,6 +243,19 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 			term = CostEstimate.LimitingTerm.OVERHEAD;
 
 		Set<String> estimateWarnings = new LinkedHashSet<>(warnings);
+		if (model.isQuantizedKernel()) {
+			if (!model.effectiveComputePrecision().equals(model.getPrecision()))
+				estimateWarnings.add("the quantized kernel stores weights at " + model.getPrecision()
+						+ " but computes at " + model.effectiveComputePrecision()
+						+ "; the duration divides by the device throughput of the compute format, which the "
+						+ "scenario must declare for that precision");
+			if (model.quantizationOverheadFlops() > 0 || model.quantizationExpansionBytes() > 0)
+				estimateWarnings.add("the quantized kernel charges a dequantization cost of "
+						+ String.format("%.3e", model.quantizationOverheadFlops())
+						+ " flops and " + String.format("%.3e", model.quantizationExpansionBytes())
+						+ " bytes per step; these model the unpacking a fused kernel performs and are not a "
+						+ "measured figure unless the calibration source says so");
+		}
 		String extrapolation = extrapolationWarning(model, device, batch, stepTokens);
 		if (extrapolation != null)
 			estimateWarnings.add(extrapolation);
@@ -204,7 +265,7 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 					+ " s of work; the duration is set by the overhead");
 
 		Provenance provenance = combineProvenance(model, device);
-		return new CostEstimate(seconds, flops, bytes, term, provenance, isCalibrated(), estimateWarnings);
+		return new CostEstimate(seconds, chargedFlops, chargedBytes, term, provenance, isCalibrated(), estimateWarnings);
 	}
 
 	/**
@@ -304,7 +365,7 @@ public class RooflineAnalyticalCostModel implements ExecutionCostModel {
 			throw new IllegalArgumentException("A cost estimate needs a device profile");
 		model.validate();
 		device.validate();
-		device.flopsPerSecond(model.getPrecision());
+		device.flopsPerSecond(model.effectiveComputePrecision());
 	}
 
 	/**

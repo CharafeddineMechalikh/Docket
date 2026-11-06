@@ -76,6 +76,28 @@ public class ModelProfile {
 	/** Quantization applied to the weights, {@code none} by default. */
 	protected String quantization = "none";
 	/**
+	 * Whether the quantized-kernel arithmetic is modelled beyond the scalar byte width. Off by
+	 * default, which keeps the roofline charging the weights at {@link #precision} and adding no
+	 * dequantization cost, exactly as before the mechanism existed.
+	 */
+	protected boolean quantizedKernel = false;
+	/**
+	 * Precision at which the matmul arithmetic runs when {@link #quantizedKernel} is on, which may
+	 * differ from the {@link #precision} the weights are stored at (int4 weights, bf16 compute).
+	 * Empty means the storage precision.
+	 */
+	protected String computePrecision = "";
+	/**
+	 * Operations the kernel spends unpacking one weight scalar from its storage format into the
+	 * compute format, charged once per weight per step. Zero adds no dequantization cost.
+	 */
+	protected double dequantFlopsPerScalar = 0;
+	/**
+	 * Bytes occupied by one weight scalar in the compute format, used for the dequantization write
+	 * traffic. Zero means the arithmetic charges no expansion beyond the storage bytes.
+	 */
+	protected double computeBytesPerScalar = 0;
+	/**
 	 * Bytes reserved per running sequence for activations and intermediate buffers, on top of
 	 * the key-value cache.
 	 */
@@ -589,6 +611,123 @@ public class ModelProfile {
 	public ModelProfile setQuantization(String quantization) {
 		this.quantization = quantization;
 		return this;
+	}
+
+	/**
+	 * Returns whether the quantized-kernel arithmetic is modelled beyond the scalar byte width.
+	 *
+	 * @return {@code true} when the kernel runs at a compute precision and adds dequantization cost
+	 */
+	public boolean isQuantizedKernel() {
+		return quantizedKernel;
+	}
+
+	/**
+	 * Turns the quantized-kernel arithmetic on or off. When off, every figure this flag would use
+	 * is ignored and the roofline behaves exactly as it did before the mechanism existed.
+	 *
+	 * @param quantizedKernel {@code true} to model a quantized kernel beyond byte width
+	 * @return this profile
+	 */
+	public ModelProfile setQuantizedKernel(boolean quantizedKernel) {
+		this.quantizedKernel = quantizedKernel;
+		return this;
+	}
+
+	/**
+	 * Returns the precision at which the matmul arithmetic runs, falling back to the storage
+	 * {@link #precision} when none was declared or the kernel is off. The roofline divides by the
+	 * device throughput at this precision, so a quantized model that computes at a wider format
+	 * is charged the throughput of that format rather than of the stored one.
+	 *
+	 * @return the compute precision label
+	 */
+	public String effectiveComputePrecision() {
+		if (!quantizedKernel || computePrecision == null || computePrecision.isEmpty())
+			return precision;
+		return computePrecision;
+	}
+
+	/**
+	 * Returns the declared compute precision, which may be empty to mean the storage precision.
+	 *
+	 * @return the compute precision label, {@code ""} when unset
+	 */
+	public String getComputePrecision() {
+		return computePrecision;
+	}
+
+	/**
+	 * Sets the precision the quantized kernel computes at.
+	 *
+	 * @param computePrecision a label such as {@code bf16}, or empty to use the storage precision
+	 * @return this profile
+	 */
+	public ModelProfile setComputePrecision(String computePrecision) {
+		this.computePrecision = computePrecision == null ? "" : computePrecision.toLowerCase(java.util.Locale.ROOT);
+		return this;
+	}
+
+	/**
+	 * Returns the operations spent unpacking one weight scalar, charged once per weight per step.
+	 *
+	 * @return flops per scalar, {@code 0} when no dequantization is modelled
+	 */
+	public double getDequantFlopsPerScalar() {
+		return dequantFlopsPerScalar;
+	}
+
+	/**
+	 * Sets the dequantization arithmetic cost per weight scalar.
+	 *
+	 * @param dequantFlopsPerScalar operations per scalar, zero or more
+	 * @return this profile
+	 */
+	public ModelProfile setDequantFlopsPerScalar(double dequantFlopsPerScalar) {
+		this.dequantFlopsPerScalar = Math.max(0, dequantFlopsPerScalar);
+		return this;
+	}
+
+	/**
+	 * Returns the bytes one weight scalar occupies in the compute format.
+	 *
+	 * @return bytes per compute scalar, {@code 0} when no expansion is modelled
+	 */
+	public double getComputeBytesPerScalar() {
+		return computeBytesPerScalar;
+	}
+
+	/**
+	 * Sets the compute-format width of one weight scalar, used for the dequantization write traffic.
+	 *
+	 * @param computeBytesPerScalar bytes per compute scalar, zero or more
+	 * @return this profile
+	 */
+	public ModelProfile setComputeBytesPerScalar(double computeBytesPerScalar) {
+		this.computeBytesPerScalar = Math.max(0, computeBytesPerScalar);
+		return this;
+	}
+
+	/**
+	 * Returns the dequantization operations a step pays to unpack every weight, or zero when the
+	 * quantized kernel is off. A step streams the whole weight tensor once, so it unpacks all of it.
+	 *
+	 * @return operations added to the step
+	 */
+	public double quantizationOverheadFlops() {
+		return quantizedKernel ? parameterCount * dequantFlopsPerScalar : 0;
+	}
+
+	/**
+	 * Returns the extra bytes a step moves to expand quantized weights into the compute format, or
+	 * zero when the kernel is off or the compute width does not exceed the storage width.
+	 *
+	 * @return bytes added to the step's memory traffic
+	 */
+	public double quantizationExpansionBytes() {
+		if (!quantizedKernel || computeBytesPerScalar <= bytesPerParameter)
+			return 0;
+		return parameterCount * (computeBytesPerScalar - bytesPerParameter);
 	}
 
 	/**

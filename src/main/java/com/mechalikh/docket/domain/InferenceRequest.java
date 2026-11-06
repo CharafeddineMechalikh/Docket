@@ -73,6 +73,12 @@ public class InferenceRequest extends AbstractQueueElement<InferenceRequest> {
 	protected double cancellationTime = 0;
 	/** Session identifier, used by prefix-aware extensions. Empty when the request has none. */
 	protected String sessionId = "";
+	/**
+	 * Tokens of this request's prompt that were served from a shared prefix cache rather than
+	 * recomputed. Zero unless the prefix-reuse mechanism credited the request, and reported so a run
+	 * that saved prefill work is distinguishable from one that did not.
+	 */
+	protected int reusedPrefixTokens;
 
 	/** Current lifecycle state. */
 	protected RequestState state = RequestState.CREATED;
@@ -622,6 +628,40 @@ public class InferenceRequest extends AbstractQueueElement<InferenceRequest> {
 	public InferenceRequest setSessionId(String sessionId) {
 		this.sessionId = sessionId == null ? "" : sessionId;
 		return this;
+	}
+
+	/**
+	 * The key a prefix cache uses to decide whether two requests share a prompt.
+	 * <p>
+	 * The simulator models prompt length, not prompt content, so the honest reuse rule is exact match:
+	 * two requests reuse each other's cache only when they name the same model, ask for the same number
+	 * of prompt tokens and, when a session is set, belong to the same session. A prefix cache is a
+	 * property of the content, so this key deliberately has a high false-negative rate: it never
+	 * credits a hit for prompts the scenario cannot prove equal, which is the safe direction for a
+	 * published number. Requests with no session reuse only against an identical model and length.
+	 *
+	 * @return a stable string that two identical prompts share
+	 */
+	public String prefixKey() {
+		return sessionId.isEmpty() ? modelId + "/len=" + inputTokens : modelId + "/len=" + inputTokens + "/s=" + sessionId;
+	}
+
+	/**
+	 * Tokens of the prompt that were served from the prefix cache instead of recomputed.
+	 *
+	 * @return reused tokens, zero when nothing was reused
+	 */
+	public int getReusedPrefixTokens() {
+		return reusedPrefixTokens;
+	}
+
+	/**
+	 * Records how much of the prompt the prefix cache supplied.
+	 *
+	 * @param reusedPrefixTokens reused tokens, negative values are clamped to {@code 0}
+	 */
+	public void addReusedPrefixTokens(int reusedPrefixTokens) {
+		this.reusedPrefixTokens = Math.max(0, reusedPrefixTokens);
 	}
 
 	/**

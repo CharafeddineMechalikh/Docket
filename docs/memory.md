@@ -83,7 +83,7 @@ There are three places where memory is asked for:
 | Point | What is reserved | If refused |
 |---|---|---|
 | Prefill chunk | The tokens the chunk will cache | `cache_refusals++`, the request is suspended back to the queue, keeping its cached chunks until a stall releases them |
-| Decode iteration, per sequence | One token, because the next generated token needs a slot | `cache_refusals++`, that sequence is left out of the iteration |
+| Decode iteration, per sequence | One token by default, or the accepted-token window when speculative decoding is on, because each token the step may emit needs a slot | `cache_refusals++`, that sequence is left out of the iteration |
 | Admission, `cache-capacity` policy | The predicted final context plus headroom | The request is rejected before any GPU work |
 
 The first two are runtime refusals and are counted in `cache_refusals`. The third is an admission
@@ -159,6 +159,30 @@ If every sequence is blocked, the iteration cannot run and preemption starts. If
 run, the iteration runs with them, and the blocked ones wait for the next opportunity. This is why
 the reported batch size can sit below both the batch ceiling and the number of running sequences in
 the loaded scenario.
+
+When `replica.speculativeDecoding=true`, the reservation is the accepted-token window rather than a
+single token, because a verification step may emit several tokens per sequence at once. The window
+is derived from `replica.draftTokens` and `replica.acceptanceRate`; with the mechanism off it is one,
+so the reservation, the cost call and the emission reduce to the plain step described above.
+
+## Opt-in prefix reuse
+
+With `replica.prefixCache=true`, a request whose prompt matches one a completed request already
+cached starts with those prompt tokens in place instead of recomputing them. The match is exact:
+same model, same prompt length, and the same session when one is set. It is deliberately
+conservative, so it never credits a hit the scenario cannot prove equal, which is the safe direction
+for a published number.
+
+Reuse changes the recomputation, not the accounting. The shared tokens are reserved in the pool
+exactly as a recompute would reserve them, so `allocated_blocks` and `peak_cache_occupancy` reflect
+the same blocks; what falls is the prefill flops, time and energy for the reused span. A request that
+has already begun caching (a resumed or partially prefilled sequence) keeps its own progress and
+takes no shortcut. The index of published prompts is bounded, dropping the oldest entry past a fixed
+cap, so a long run cannot grow it without limit.
+
+The mechanism is refused under prefill/decode disaggregation, where the prompt cache lives on a
+different replica than the one that would reuse it. With it off, a prefill starts from zero cached
+tokens exactly as it did before the mechanism existed.
 
 ## Counters and what they mean
 

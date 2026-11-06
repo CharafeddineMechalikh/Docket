@@ -78,6 +78,12 @@ Supported today:
 - prefill/decode disaggregation onto separate, possibly heterogeneous, device pools, with the
   key-value hand-off charged onto a store-and-forward fabric between the pools, or made instant when
   the scenario names none; colocated serving remains the default;
+- speculative decoding, off by default, which verifies several draft tokens per step at an expected
+  acceptance rate and prices the verification against the number of candidates, not the tokens kept;
+- prompt-prefix reuse across requests, off by default, keyed on model, prompt length and session,
+  which spares the recompute of a prompt another request already cached;
+- quantized-kernel arithmetic beyond the scalar byte width, off by default, which separates the
+  storage precision from the compute precision and charges dequantization flops and expansion bytes;
 - per-request metrics: TTFT, TPOT, mean and max inter-token latency, end-to-end, queueing,
   prefill, decode, uplink and downlink time;
 - energy from a two-level power model (idle plus active), integrated over simulated time;
@@ -85,6 +91,10 @@ Supported today:
 - five arrival patterns, sixteen length distributions and CSV trace replay, with four public serving
   traces replayed under [examples/real-traces](examples/real-traces/README.md);
 - a strict properties loader, a CLI, and reproducible CSV, JSONL and console artifacts.
+
+Speculative decoding, prompt-prefix reuse and quantized-kernel arithmetic are opt-in. A scenario that
+turns none of them on reproduces the plain serving loop token for token: the mechanisms add no cost,
+no reuse and no extra emission until their keys are set.
 
 Not in this stage:
 
@@ -97,9 +107,8 @@ Not in this stage:
   modelled queue on an invented fabric, not a measured inter-node hop;
 - calibration of the roofline or power model against an accelerator, or of power against any
   engine (the laptop-CPU calibration covers service time on that CPU only), and calibration of a
-  bearer against a measurement campaign;
-- speculative decoding, prefix caching across requests, or quantized-kernel modelling beyond the
-  scalar byte width.
+  bearer against a measurement campaign. The three opt-in mechanisms above are analytical, so their
+  figures are estimates unless a scenario supplies a measured calibration source.
 
 ## Requirements and build
 
@@ -377,6 +386,36 @@ refuse a request whose predicted context does not fit, which is how the loaded s
   deadline is terminated rather than allowed to finish, which trades success ratio for tail
   latency.
 
+### Opt-in serving mechanisms
+
+Three mechanisms beyond the plain loop are opt-in. With every key at its default a run reproduces
+the plain continuous-batching serving token for token; each one starts costing, reusing or emitting
+only when its key is set.
+
+- **Speculative decoding.** With `replica.speculativeDecoding=true`, a step verifies `replica.draftTokens`
+  proposed tokens plus one guaranteed token at once. At acceptance `replica.acceptanceRate` the
+  expected number kept is the truncated geometric sum `(1 - a^(k+1)) / (1 - a)`, rounded to whole
+  tokens, so the loop clears a sequence in fewer iterations. The step is priced over the candidate
+  count, not the tokens kept, because the target model materialises a key and a value for every
+  candidate before discarding the rejected ones. It never emits more tokens than the request asked
+  for. The draft model is not a second device: it is a per-token acceptance rate and a wider step,
+  which is the part of speculation that changes latency and cache pressure.
+- **Prompt-prefix reuse.** With `replica.prefixCache=true`, a request whose prompt was already cached
+  by an earlier request starts with that prefix in the cache and skips its recompute. The simulator
+  models prompt length, not prompt content, so the reuse key is `model, prompt length, session` and
+  only credits a hit the scenario can prove identical, which keeps the false-negative rate high and
+  the reported savings honest. The blocks still occupy the pool, so cache accounting is unchanged;
+  only the prefill recompute falls. It is refused under disaggregation, where the prompt cache is
+  handed between pools and the shared prefix would have two homes.
+- **Quantized-kernel arithmetic.** With `model.quantizedKernel=true`, storage and compute precision
+  are separated: the weights stay at `model.precision` and the matmul runs at `model.computePrecision`,
+  so the roofline divides by the device throughput of the compute format, not the stored one.
+  `model.dequantFlopsPerScalar` adds the unpacking arithmetic to every step and
+  `model.computeBytesPerScalar` charges the write traffic of expanding weights into the compute
+  format. A scenario must declare `device.achievedTFLOPS.<computePrecision>` or the run is refused at
+  load time rather than silently dividing by the storage figure. These are analytical estimates of
+  the unpacking a fused kernel performs, not measured figures unless a calibration source says so.
+
 ### Energy
 
 The device is modelled with two constant power levels. Active seconds are charged at
@@ -444,6 +483,10 @@ invocation.
 | `model.quantization` | `none` | Label written to the artifacts |
 | `model.activationBytesPerSequence` | `0` | Activation footprint reserved per running sequence |
 | `model.activeParameterFraction` | `1` | Fraction of parameters touched per token, for sparse models |
+| `model.quantizedKernel` | `false` | Model quantized-kernel arithmetic beyond the byte width, off keeps the plain roofline |
+| `model.computePrecision` | `model.precision` | Precision the matmul runs at when the kernel is on, may differ from the stored one |
+| `model.dequantFlopsPerScalar` | `0` | Operations unpacking one weight per step, added to the step arithmetic |
+| `model.computeBytesPerScalar` | `0` | Compute-format width, its excess over the storage width is charged as expansion bytes |
 | `model.provenance` | `synthetic` | `synthetic`, `literature` or `measured` |
 
 ### `device.*`
@@ -497,6 +540,10 @@ device.server.achievedTFLOPS.fp16=100
 | `replica.tokensPerBlock` | `16` | Tokens per cache block, the allocation granularity |
 | `replica.runtimeOverheadGiB` | `0` | Bytes the runtime keeps beyond the unusable fraction |
 | `replica.reservedActivationSlots` | `0` | Sequences whose activations are reserved out of the KV budget |
+| `replica.speculativeDecoding` | `false` | Verify several draft tokens per step instead of emitting one |
+| `replica.draftTokens` | `2` | Candidates proposed per sequence beyond the guaranteed token, at least one when on |
+| `replica.acceptanceRate` | `0.7` | Per-candidate acceptance probability, in `[0, 1)`, sets the tokens kept per step |
+| `replica.prefixCache` | `false` | Reuse a prompt another request already cached, keyed on model, length and session |
 | `replica.<profile>.<key>` | the `replica.*` value | Per-machine limit in a fleet, for any key above except the first two |
 
 Two replicas never share a device instance: each would count the whole memory as its own. Use

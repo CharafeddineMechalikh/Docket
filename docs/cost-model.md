@@ -18,12 +18,14 @@ step_seconds = max( F / Φ , B / β ) + δ
 |---|---|---|
 | `F` | Floating-point operations of the step | Model shape and step contents |
 | `B` | Bytes moved through device memory | Model shape and step contents |
-| `Φ` | Achieved throughput, in flops per second | `device.achievedTFLOPS.<precision>` |
+| `Φ` | Achieved throughput, in flops per second | `device.achievedTFLOPS.<precision>` at the compute precision |
 | `β` | Achieved memory bandwidth, in bytes per second | `device.memoryBandwidthGBs` |
 | `δ` | Kernel launch overhead, in seconds | `device.kernelLaunchOverheadMs` |
 
 Only the achieved throughput is used. A published peak may be declared under
-`device.peakTFLOPS.*`, but it never appears in a division.
+`device.peakTFLOPS.*`, but it never appears in a division. The precision `Φ` is read at is the
+storage precision unless the quantized kernel below selects a compute precision, in which case the
+device must declare throughput for that format too.
 
 The binding term is chosen as:
 
@@ -90,6 +92,51 @@ The model charges the weights once per step, which assumes a fused kernel, and c
 cache as a full read, which is the pessimistic end of a paged layout. Both assumptions are listed
 in the cost model's own warnings and echoed into `config.txt`.
 
+## Speculative verification step
+
+When `replica.speculativeDecoding` is on, a decode step verifies `v = draftTokens + 1` candidate
+positions per sequence at once instead of one. The step is a small prefill over the running context,
+so its arithmetic scales with `v`:
+
+```text
+F_spec = 2 * P_active * N * v
+       + 4 * L * d_kv * ( v * S + N * v * (v + 1) / 2 )
+
+B_spec = W
+       + kv_bytes_per_token * v * S
+       + kv_bytes_per_token * N * v
+       + A * N
+```
+
+The cache write is charged for all `v` positions, because the target model materialises a key and a
+value for each candidate before discarding the rejected ones. The step cost does not depend on how
+many candidates are kept: that is the acceptance rate, a property of the draft model the scheduler
+reads, not of the hardware. The scheduler keeps `(1 - a^(k+1)) / (1 - a)` tokens per step, rounded to
+whole tokens and capped at `k + 1`, so it clears a sequence in fewer iterations while each iteration
+costs more than a plain decode. With the mechanism off `v = 1` and the formula reduces to the decode
+step above.
+
+## Quantized-kernel arithmetic
+
+With `model.quantizedKernel` on, storage and compute precision are separated. The weights stay at
+`model.precision`, the matmul runs at `model.computePrecision`, and two terms are added to every step
+before the roofline maximum is taken:
+
+```text
+F_charged = F_step + parameterCount * dequantFlopsPerScalar
+B_charged = B_step + parameterCount * max(0, computeBytesPerScalar - bytesPerParameter)
+step_seconds = max( F_charged / Φ_compute , B_charged / β ) + δ
+```
+
+`Φ_compute` is the device throughput at the compute precision. The dequantization term models the
+unpacking a fused kernel performs once per weight per step; the expansion term is the write traffic
+of widening the weights into the compute format, and it is zero when the compute width does not
+exceed the storage width. A scenario that names a compute precision the device does not declare is
+refused at load time, rather than dividing by the storage figure silently. With the mechanism off
+both added terms are zero and `Φ_compute` equals the storage throughput, so the roofline is the one
+above, unchanged. These terms are analytical estimates, not measured, unless a calibration source
+says so, and the estimate carries a warning naming them.
+
 ## Worked example
 
 The loaded scenario, with a 512-token prefill chunk on an empty cache:
@@ -132,6 +179,8 @@ The model attaches warnings to the run when:
 | More than `cost.supportedMaxStepTokens` tokens in one step | The step exceeds the token envelope |
 | `kvBytesPerScalar < bytesPerParameter` | The cache is quantized more aggressively than the weights; the arithmetic term is unchanged but a real backend differs |
 | `OVERHEAD` binding term | The launch overhead dominates the step |
+| Quantized kernel, compute precision differs from storage | The duration divides by the compute-format throughput, which the scenario must declare |
+| Quantized kernel, dequantization or expansion non-zero | The added flops and bytes model fused-kernel unpacking and are not measured unless the calibration source says so |
 
 Extrapolation does not refuse the step. The estimate is produced and labelled, because refusing
 would make it impossible to explore the edge of the envelope deliberately.

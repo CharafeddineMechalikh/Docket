@@ -114,9 +114,13 @@ invocation that produced it.
 | `model.bytesPerParameter` | from precision | Override for a precision outside the table |
 | `model.kvDataType` | `model.precision` | Used only to derive `kvBytesPerScalar` when absent |
 | `model.kvBytesPerScalar` | from `kvDataType` | Scalar width of the cache |
-| `model.quantization` | `none` | Label only; the arithmetic reads `bytesPerParameter` |
+| `model.quantization` | `none` | Label only; the arithmetic reads `bytesPerParameter` unless the kernel is on |
 | `model.activationBytesPerSequence` | `0` | Charged once per prefill step and once per sequence per decode step |
 | `model.activeParameterFraction` | `1` | In `(0, 1]`; flops use parameters x fraction |
+| `model.quantizedKernel` | `false` | Opt-in arithmetic beyond the byte width; off keeps the plain roofline |
+| `model.computePrecision` | `model.precision` | Precision the matmul runs at when the kernel is on; the device must declare its achieved throughput |
+| `model.dequantFlopsPerScalar` | `0` | Unpacking ops added per weight per step |
+| `model.computeBytesPerScalar` | `0` | Compute-format width; its excess over the storage width is charged as expansion bytes |
 | `model.provenance` | `synthetic` | `synthetic`, `literature` or `measured` |
 
 Byte-per-scalar defaults: `fp32` and `tf32` 4; `fp16` and `bf16` 2; `fp8` and `int8` 1; `int4`
@@ -194,6 +198,10 @@ what `replicas` is for.
 | `replica.tokensPerBlock` | `16` | At least 1 |
 | `replica.runtimeOverheadGiB` | `0` | Zero or more |
 | `replica.reservedActivationSlots` | `0` | Zero or more |
+| `replica.speculativeDecoding` | `false` | Opt-in; verify several draft tokens per step instead of emitting one |
+| `replica.draftTokens` | `2` | At least 1 when speculative decoding is on |
+| `replica.acceptanceRate` | `0.7` | In `[0, 1)`; expected kept tokens are `(1 - a^(k+1)) / (1 - a)` rounded |
+| `replica.prefixCache` | `false` | Opt-in prompt-prefix reuse; refused under disaggregation |
 
 All replicas share the same specification. Their identifiers are the device id, with `-1`, `-2`
 and so on appended when there is more than one. Two replicas never share one device object,
@@ -223,6 +231,10 @@ replica.phone.maxBatchSize=1
 | `replica.<profile>.tokensPerBlock` | the `replica.*` value | At least 1 |
 | `replica.<profile>.runtimeOverheadGiB` | the `replica.*` value | Zero or more |
 | `replica.<profile>.reservedActivationSlots` | the `replica.*` value | Zero or more |
+| `replica.<profile>.speculativeDecoding` | the `replica.*` value | Boolean |
+| `replica.<profile>.draftTokens` | the `replica.*` value | At least 1 when on |
+| `replica.<profile>.acceptanceRate` | the `replica.*` value | In `[0, 1)` |
+| `replica.<profile>.prefixCache` | the `replica.*` value | Boolean |
 
 The batch ceiling and the cache block are per-machine choices rather than per-deployment ones: a
 phone runs one sequence at a time and a server batches dozens, so a fleet that shared one ceiling

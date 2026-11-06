@@ -73,6 +73,28 @@ public interface ExecutionCostModel {
 	CostEstimate decodeIteration(ModelProfile model, GpuProfile device, DecodeBatch batch);
 
 	/**
+	 * Predicts the duration of one speculative-decoding verification step, where every sequence in
+	 * the batch checks {@code draftTokens} proposed tokens in parallel before emitting the accepted
+	 * ones.
+	 * <p>
+	 * A cost model that does not model speculative decoding leaves this method untouched, and the
+	 * simulator refuses a scenario that turns the mechanism on without a model able to price it. The
+	 * analytical and calibrated models both override it, so an ordinary scenario never reaches the
+	 * default.
+	 *
+	 * @param model       the served target model
+	 * @param device      the device executing the step
+	 * @param batch       the sequences taking part, carrying their cached contexts
+	 * @param draftTokens candidate tokens proposed per sequence beyond the guaranteed one, at least one
+	 * @return the predicted duration and its evidence
+	 */
+	default CostEstimate speculativeIteration(ModelProfile model, GpuProfile device, DecodeBatch batch,
+			int draftTokens) {
+		throw new UnsupportedOperationException(name() + " does not model speculative decoding; choose \""
+				+ "roofline-analytical\" or a model that overrides the verification step");
+	}
+
+	/**
 	 * Returns where the input figures of this model come from.
 	 *
 	 * @return the provenance

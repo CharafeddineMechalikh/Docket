@@ -108,6 +108,10 @@ public class ReplicaServer extends SimEntity {
 	protected InferenceRequest prefilling;
 	/** Sequences taking part in the iteration in flight, {@code null} when none. */
 	protected List<InferenceRequest> iterationBatch;
+	/** Duration charged to the decode iteration in flight, so its accepted tokens split it evenly. */
+	protected double iterationSeconds;
+	/** Number of tokens each sequence in the iteration in flight emits, one when speculation is off. */
+	protected int iterationAccepted = 1;
 	/** Instant the last charged interval ended. */
 	protected double lastAccountedTime;
 	/** Number of prefill steps executed. */
@@ -124,6 +128,20 @@ public class ReplicaServer extends SimEntity {
 	protected long cacheRefusals;
 	/** Number of times the replica could not start a step while holding requests. */
 	protected long stalledSteps;
+	/** Tokens emitted by decode iterations, one per iteration when speculative decoding is off. */
+	protected long decodeTokenEmissions;
+	/** Requests whose prompt was served at least partly from the prefix cache. */
+	protected long prefixHits;
+	/** Prompt tokens served from the prefix cache instead of recomputed. */
+	protected long prefixReusedTokens;
+	/**
+	 * Prompts already cached for reuse, keyed by {@link InferenceRequest#prefixKey()}, holding the
+	 * prompt length each key reached. Bounded so a long run cannot grow it without limit; the oldest
+	 * entry is dropped when the cap is reached.
+	 */
+	protected final java.util.LinkedHashMap<String, Integer> prefixByPrompt = new java.util.LinkedHashMap<>();
+	/** Entries the prefix map holds before the oldest is dropped. */
+	protected static final int PREFIX_CACHE_CAPACITY = 10000;
 
 	/**
 	 * Creates a replica.
@@ -329,6 +347,7 @@ public class ReplicaServer extends SimEntity {
 			return false;
 		sortWaitingIfNeeded();
 		InferenceRequest head = waiting.get(0);
+		applyPrefixReuse(head);
 		int target = prefillTarget(head);
 		if (pool.blocksFor(target) > pool.getTotalBlocks()) {
 			waiting.remove(0);
@@ -532,11 +551,14 @@ public class ReplicaServer extends SimEntity {
 	protected boolean startDecodeIteration() {
 		if (running.isEmpty() || prefilling != null)
 			return false;
+		// One token per sequence when speculation is off, so the reservation, the cost call and the
+		// emission below all reduce to the plain continuous-batching step they were before the mechanism.
+		int room = spec.acceptedTokensPerStep();
 		List<InferenceRequest> batch = new ArrayList<>();
 		for (InferenceRequest request : running.values()) {
 			if (batch.size() >= spec.getMaxBatchSize())
 				break;
-			if (pool.reserve(request.getRequestId(), request.getCachedTokens() + 1))
+			if (pool.reserve(request.getRequestId(), request.getCachedTokens() + room))
 				batch.add(request);
 			else
 				cacheRefusals++;
@@ -550,7 +572,10 @@ public class ReplicaServer extends SimEntity {
 			contexts += request.getCachedTokens();
 			max = Math.max(max, request.getCachedTokens());
 		}
-		CostEstimate estimate = cost.decodeIteration(model, device, new DecodeBatch(batch.size(), contexts, max));
+		DecodeBatch shape = new DecodeBatch(batch.size(), contexts, max);
+		CostEstimate estimate = room > 1
+				? cost.speculativeIteration(model, device, shape, spec.getDraftTokens())
+				: cost.decodeIteration(model, device, shape);
 		double duration = estimate.seconds();
 		for (InferenceRequest request : batch) {
 			request.addDecodeSeconds(duration / batch.size());
@@ -560,6 +585,8 @@ public class ReplicaServer extends SimEntity {
 		decodeIterations++;
 		batchSizeSum += batch.size();
 		peakBatchSize = Math.max(peakBatchSize, batch.size());
+		iterationSeconds = duration;
+		iterationAccepted = room;
 		schedule(this, duration, ITERATION_DONE);
 		return true;
 	}
@@ -573,6 +600,10 @@ public class ReplicaServer extends SimEntity {
 		chargeIdleUntil(clock);
 		List<InferenceRequest> batch = iterationBatch;
 		iterationBatch = null;
+		int accepted = iterationAccepted;
+		double secondsThisStep = iterationSeconds;
+		iterationAccepted = 1;
+		iterationSeconds = 0;
 		if (batch == null) {
 			pump();
 			return;
@@ -581,12 +612,33 @@ public class ReplicaServer extends SimEntity {
 		for (InferenceRequest request : batch) {
 			if (request.getState() != RequestState.DECODING)
 				continue;
-			request.setCachedTokens(request.getCachedTokens() + 1);
-			request.emitToken(clock, clock - previousTokenTime(request));
-			if (isFinished(request))
+			if (accepted <= 1) {
+				request.setCachedTokens(request.getCachedTokens() + 1);
+				request.emitToken(clock, clock - previousTokenTime(request));
+				decodeTokenEmissions++;
+				if (isFinished(request))
+					finished.add(request);
+				else if (reachesContextLimit(request))
+					stopAtContextLimit(request);
+				continue;
+			}
+			// A verification step emits its accepted tokens at the end of one iteration, so the step
+			// duration is split evenly over them. The loop stops the instant the sequence has produced
+			// everything it asked for or would pass the context window, so speculation never overshoots.
+			double perToken = secondsThisStep / accepted;
+			for (int t = 0; t < accepted; t++) {
+				if (isFinished(request))
+					break;
+				if (reachesContextLimit(request)) {
+					stopAtContextLimit(request);
+					break;
+				}
+				request.setCachedTokens(request.getCachedTokens() + 1);
+				request.emitToken(clock, perToken);
+				decodeTokenEmissions++;
+			}
+			if (request.getState() == RequestState.DECODING && isFinished(request))
 				finished.add(request);
-			else if (reachesContextLimit(request))
-				stopAtContextLimit(request);
 		}
 		for (InferenceRequest request : finished)
 			complete(request);
@@ -622,6 +674,7 @@ public class ReplicaServer extends SimEntity {
 	 * @param request the truncated request
 	 */
 	protected void stopAtContextLimit(InferenceRequest request) {
+		publishPrefix(request);
 		service.finish(request, RequestState.COMPLETED, OutcomeReason.CONTEXT_LIMIT_REACHED);
 		releaseResourcesOf(request);
 	}
@@ -632,6 +685,7 @@ public class ReplicaServer extends SimEntity {
 	 * @param request the completed request
 	 */
 	protected void complete(InferenceRequest request) {
+		publishPrefix(request);
 		service.finish(request, RequestState.COMPLETED, OutcomeReason.SUCCESS);
 		releaseResourcesOf(request);
 	}
@@ -695,6 +749,66 @@ public class ReplicaServer extends SimEntity {
 	 */
 	protected static int prefillTarget(InferenceRequest request) {
 		return request.getInputTokens() + request.getGeneratedTokens();
+	}
+
+	/**
+	 * Gives a fresh request the prompt prefix another request already left in the cache.
+	 * <p>
+	 * When the mechanism is off the method returns at once, so a prefill starts from zero cached
+	 * tokens exactly as it did before it existed. When it is on and the whole prompt of a completed
+	 * request was cached under the same prefix key, the blocks are reserved here and {@code request}
+	 * starts with those tokens already cached, so the prefill recompute is skipped for them. The
+	 * blocks still occupy the pool as they would after a recompute, so cache accounting is unchanged;
+	 * only the recomputation cost falls.
+	 *
+	 * @param request the request about to be prefilled, at the head of the queue
+	 */
+	protected void applyPrefixReuse(InferenceRequest request) {
+		if (!spec.isPrefixCache())
+			return;
+		// Only a prompt that has not begun to be cached can take the shortcut; a resumed or partially
+		// prefilled sequence keeps the progress it already made.
+		if (request.getCachedTokens() != 0 || request.getGeneratedTokens() != 0)
+			return;
+		int shared = Math.min(sharedPrefixTokens(request), request.getInputTokens());
+		if (shared <= 0)
+			return;
+		if (!pool.reserve(request.getRequestId(), shared)) {
+			cacheRefusals++;
+			return;
+		}
+		request.setCachedTokens(shared);
+		request.setAllocatedBlocks(pool.allocatedBlocks(request.getRequestId()));
+		request.addReusedPrefixTokens(shared);
+		prefixHits++;
+		prefixReusedTokens += shared;
+	}
+
+	/**
+	 * Returns the prompt length already cached for the key this request would reuse, or zero when
+	 * the key has not been published yet.
+	 *
+	 * @param request the request whose shared prefix is looked up
+	 * @return cached prompt tokens, zero when there is no entry
+	 */
+	protected int sharedPrefixTokens(InferenceRequest request) {
+		Integer cached = prefixByPrompt.get(request.prefixKey());
+		return cached == null ? 0 : cached;
+	}
+
+	/**
+	 * Publishes the prompt of a finishing request so a later request with the same prefix key can
+	 * reuse it. The map is bounded: the least recently used entry is dropped once the cap is reached,
+	 * so a long run cannot grow the index without limit.
+	 *
+	 * @param request the request leaving the replica after a successful serve
+	 */
+	protected void publishPrefix(InferenceRequest request) {
+		if (!spec.isPrefixCache())
+			return;
+		if (prefixByPrompt.size() >= PREFIX_CACHE_CAPACITY && !prefixByPrompt.containsKey(request.prefixKey()))
+			prefixByPrompt.remove(prefixByPrompt.keySet().iterator().next());
+		prefixByPrompt.put(request.prefixKey(), request.getInputTokens());
 	}
 
 	/**
@@ -774,15 +888,20 @@ public class ReplicaServer extends SimEntity {
 	 */
 	protected double predictedWaitingWork(InferenceRequest request) {
 		int prompt = request.getInputTokens();
+		// One token per sequence per step when speculation is off, so the divisor below leaves the
+		// estimate exactly as it was before the mechanism.
+		int room = spec.acceptedTokensPerStep();
 		double perToken = cost.decodeIteration(model, device, new DecodeBatch(1, prompt + 1, prompt + 1)).seconds();
 		int tokens = Math.max(0, Math.min(request.getPredictedOutputTokens(), request.getMaxOutputTokens()) - 1);
 		// A decode replica inherits the prompt cache, so the work it still owes a waiting request
 		// is the remaining tokens alone; charging it a prefill would overstate its load and steer
 		// routing away from the instances that are the cheapest place to finish a sequence.
 		if (spec.getRole() == ReplicaSpec.Role.DECODE)
-			return perToken * tokens;
-		double prefill = cost.prefillStep(model, device, prompt, 0).seconds();
-		return prefill + perToken * tokens;
+			return perToken * tokens / room;
+		// A prompt whose prefix is already cached owes only the tokens after the shared prefix.
+		int reused = spec.isPrefixCache() ? Math.min(sharedPrefixTokens(request), prompt) : 0;
+		double prefill = cost.prefillStep(model, device, Math.max(1, prompt - reused), reused).seconds();
+		return prefill + perToken * tokens / room;
 	}
 
 	/**
@@ -1024,6 +1143,36 @@ public class ReplicaServer extends SimEntity {
 	 */
 	public long getStalledSteps() {
 		return stalledSteps;
+	}
+
+	/**
+	 * Returns the number of tokens the decode iterations emitted, which exceeds the iteration count
+	 * only when speculative decoding lets a step emit more than one token per sequence.
+	 *
+	 * @return emitted decode tokens, a plain count
+	 */
+	public long getDecodeTokenEmissions() {
+		return decodeTokenEmissions;
+	}
+
+	/**
+	 * Returns how many requests took at least some of their prompt from the prefix cache. Zero until
+	 * the mechanism is turned on, since a request with prefix reuse off always recomputes its prompt.
+	 *
+	 * @return requests served partly from a shared prefix
+	 */
+	public long getPrefixHits() {
+		return prefixHits;
+	}
+
+	/**
+	 * Returns the prompt tokens served from the prefix cache instead of recomputed, summed over the
+	 * requests that hit it.
+	 *
+	 * @return reused prompt tokens, a plain count
+	 */
+	public long getPrefixReusedTokens() {
+		return prefixReusedTokens;
 	}
 
 	/**
