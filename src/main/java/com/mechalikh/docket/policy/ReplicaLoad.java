@@ -52,6 +52,22 @@ public final class ReplicaLoad {
 	private final int totalCacheTokens;
 	/** Work already promised to the waiting requests, in seconds. */
 	private final double pendingWorkSeconds;
+	/**
+	 * Seconds this replica needs to prefill the request the snapshot was taken for, published by the
+	 * serving loop from the deployment's execution cost model, or {@code NaN} when the snapshot
+	 * carries no price.
+	 */
+	private final double requestPrefillSeconds;
+	/**
+	 * Seconds one generated token costs this replica at the batch it is holding now, derived from the
+	 * deployment's execution cost model, or {@code NaN} when the snapshot carries no price.
+	 */
+	private final double decodeSecondsPerToken;
+	/**
+	 * One-way propagation delay of the bearer this replica is reached through, in seconds, zero when
+	 * the deployment models no access link.
+	 */
+	private final double accessSeconds;
 
 	/**
 	 * Describes the load of a replica.
@@ -68,6 +84,41 @@ public final class ReplicaLoad {
 	 */
 	public ReplicaLoad(int replicaId, String deviceId, String tier, int maxBatchSize, int waitingRequests,
 			int runningSequences, int freeCacheTokens, int totalCacheTokens, double pendingWorkSeconds) {
+		this(replicaId, deviceId, tier, maxBatchSize, waitingRequests, runningSequences, freeCacheTokens,
+				totalCacheTokens, pendingWorkSeconds, Double.NaN, Double.NaN, 0);
+	}
+
+	/**
+	 * Describes the load of one replica together with the marginal prices its device carries.
+	 * <p>
+	 * The three figures a serving loop adds here are not measurements of this request: they are the
+	 * price one prompt token and one generated token have at this replica right now, taken from the
+	 * deployment's execution cost model, plus the propagation delay of the bearer its clients reach
+	 * it through. A policy that only counts requests or queue depth leaves them unused; a policy that
+	 * has to say how long a request would take, a fidelity grant or a placement rule, reads them
+	 * instead of assuming a device is fast because it is called cloud.
+	 *
+	 * @param replicaId                    the replica identifier
+	 * @param deviceId                     the identifier of the device the replica runs on
+	 * @param tier                         the device family, as the scenario declares it
+	 * @param maxBatchSize                 the batch ceiling of this replica
+	 * @param waitingRequests              queued requests, zero or more
+	 * @param runningSequences             sequences decoding now, zero or more
+	 * @param freeCacheTokens              tokens the cache pool can still hand out
+	 * @param totalCacheTokens             cache capacity of the replica, in tokens
+	 * @param pendingWorkSeconds           estimated work of the waiting requests, in seconds
+	 * @param requestPrefillSeconds        seconds this replica needs to prefill the request the
+	 *                                     snapshot was taken for, {@code NaN} when it publishes no
+	 *                                     price
+	 * @param decodeSecondsPerToken        seconds one generated token costs here at the current
+	 *                                     batch, {@code NaN} when the snapshot publishes no price
+	 * @param accessSeconds                one-way delay of the bearer, propagation plus the prompt's
+	 *                                     own transfer, in seconds, zero when the deployment models
+	 *                                     no access link
+	 */
+	public ReplicaLoad(int replicaId, String deviceId, String tier, int maxBatchSize, int waitingRequests,
+			int runningSequences, int freeCacheTokens, int totalCacheTokens, double pendingWorkSeconds,
+			double requestPrefillSeconds, double decodeSecondsPerToken, double accessSeconds) {
 		if (waitingRequests < 0 || runningSequences < 0 || freeCacheTokens < 0)
 			throw new IllegalArgumentException("Replica " + replicaId + " reports a negative load");
 		if (totalCacheTokens < freeCacheTokens)
@@ -78,6 +129,17 @@ public final class ReplicaLoad {
 					+ pendingWorkSeconds + " s");
 		if (maxBatchSize < 1)
 			throw new IllegalArgumentException("Replica " + replicaId + " reports a batch ceiling of " + maxBatchSize);
+		if (requestPrefillSeconds < 0)
+			throw new IllegalArgumentException("Replica " + replicaId + " reports a prefill estimate of "
+					+ requestPrefillSeconds + " s; an estimate is zero or positive, or NaN when the snapshot "
+					+ "publishes none");
+		if (decodeSecondsPerToken < 0)
+			throw new IllegalArgumentException("Replica " + replicaId + " reports a decode price of "
+					+ decodeSecondsPerToken + " s per generated token; a price is zero or positive, or NaN when the "
+					+ "snapshot publishes none");
+		if (accessSeconds < 0 || Double.isNaN(accessSeconds))
+			throw new IllegalArgumentException("Replica " + replicaId + " reports an access delay of " + accessSeconds
+					+ " s; a deployment that names no bearer reports zero");
 		this.replicaId = replicaId;
 		this.deviceId = deviceId == null ? "" : deviceId;
 		this.tier = tier == null ? "" : tier;
@@ -87,6 +149,9 @@ public final class ReplicaLoad {
 		this.freeCacheTokens = freeCacheTokens;
 		this.totalCacheTokens = totalCacheTokens;
 		this.pendingWorkSeconds = pendingWorkSeconds;
+		this.requestPrefillSeconds = requestPrefillSeconds;
+		this.decodeSecondsPerToken = decodeSecondsPerToken;
+		this.accessSeconds = accessSeconds;
 	}
 
 	/**
@@ -199,6 +264,77 @@ public final class ReplicaLoad {
 	}
 
 	/**
+	 * Returns the seconds this replica would spend prefilling the prompt of the request the snapshot
+	 * was taken for.
+	 * <p>
+	 * The figure comes from the execution cost model of the deployment, so two replicas of one fleet
+	 * publish different numbers for one prompt, and a scenario that changes the device, the precision
+	 * or the prefill chunk changes the answer. It prices the prompt as one step; a chunked prefill
+	 * re-reads the weights per chunk, so a long prompt on a small chunk is priced slightly cheaply,
+	 * which is the same approximation the queue's pending work already makes.
+	 *
+	 * @return seconds, or {@code NaN} when the snapshot publishes no price
+	 */
+	public double requestPrefillSeconds() {
+		return requestPrefillSeconds;
+	}
+
+	/**
+	 * Returns the price of one generated token at this replica, in seconds.
+	 * <p>
+	 * This is the decode iteration a sequence pays at the batch width and the cached context the
+	 * replica is holding when the snapshot was taken, so it rises with the traffic the machine is
+	 * already carrying and with the context its sequences have grown to, which is exactly what a
+	 * placement or a fidelity rule needs to see. Speculative decoding, where on, lowers it because a
+	 * step emits several tokens.
+	 *
+	 * @return seconds per generated token, or {@code NaN} when the snapshot publishes no price
+	 */
+	public double decodeSecondsPerToken() {
+		return decodeSecondsPerToken;
+	}
+
+	/**
+	 * Returns the one-way delay the bearer in front of this replica would add to the request the
+	 * snapshot was taken for.
+	 * <p>
+	 * The figure is the propagation delay plus the transfer time of the prompt at the raw capacity of
+	 * the bearer, which is what a hop costs when nothing is queued in front of it: the wait behind the
+	 * transfers already on the wire is not included, because a decision taken now cannot know what
+	 * will be pushed before it. A deployment that names no bearer reports zero.
+	 *
+	 * @return seconds
+	 */
+	public double accessSeconds() {
+		return accessSeconds;
+	}
+
+	/**
+	 * Predicts how long the request the snapshot was taken for would take at this replica if it were
+	 * granted the given reasoning budget.
+	 * <p>
+	 * The prediction adds the delay of the hop to the work the queue already promised, the prefill of
+	 * this prompt and the decode of the budget at the batch this machine is holding now. Every term
+	 * but the queue comes from the deployment's execution cost model, so the seconds a smaller budget
+	 * saves are the seconds the roofline says they are, and they differ between the tiers of a fleet:
+	 * that is what makes a fidelity grant a serving decision rather than a multiplier. It is a
+	 * prediction of the instant the snapshot was taken, not of the future, and it says nothing about
+	 * the requests that arrive after it.
+	 *
+	 * @param outputTokens the reasoning budget the estimate prices, at least one
+	 * @return the predicted delay in seconds, or {@code NaN} when the snapshot publishes no prices
+	 */
+	public double predictedDelaySeconds(int outputTokens) {
+		if (Double.isNaN(requestPrefillSeconds) || Double.isNaN(decodeSecondsPerToken))
+			return Double.NaN;
+		if (outputTokens < 1)
+			throw new IllegalArgumentException("Replica " + replicaId + " is asked to price " + outputTokens
+					+ " generated tokens, at least one is required");
+		return accessSeconds + pendingWorkSeconds + requestPrefillSeconds
+				+ outputTokens * decodeSecondsPerToken;
+	}
+
+	/**
 	 * Returns the number of requests in the replica, waiting and running together.
 	 *
 	 * @return requests inside the replica
@@ -225,9 +361,17 @@ public final class ReplicaLoad {
 	 */
 	@Override
 	public String toString() {
-		return "ReplicaLoad[" + replicaId + " on " + deviceId + " (" + tier + "), waiting " + waitingRequests
-				+ ", running " + runningSequences + ", free cache " + freeCacheTokens + "/" + totalCacheTokens
-				+ " tokens, pending " + String.format("%.3f", pendingWorkSeconds) + " s]";
+		StringBuilder out = new StringBuilder("ReplicaLoad[").append(replicaId).append(" on ").append(deviceId)
+				.append(" (").append(tier).append("), waiting ").append(waitingRequests).append(", running ")
+				.append(runningSequences).append(", free cache ").append(freeCacheTokens).append('/').append(totalCacheTokens)
+				.append(" tokens, pending ").append(String.format("%.3f", pendingWorkSeconds)).append(" s");
+		if (!Double.isNaN(requestPrefillSeconds))
+			out.append(", prefill ").append(String.format("%.3f", requestPrefillSeconds)).append(" s");
+		if (!Double.isNaN(decodeSecondsPerToken))
+			out.append(", token ").append(String.format("%.5f", decodeSecondsPerToken)).append(" s");
+		if (accessSeconds > 0)
+			out.append(", access ").append(String.format("%.3f", accessSeconds)).append(" s");
+		return out.append(']').toString();
 	}
 
 	/**

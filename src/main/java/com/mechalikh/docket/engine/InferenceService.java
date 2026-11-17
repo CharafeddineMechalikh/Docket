@@ -35,6 +35,7 @@ import com.mechalikh.docket.network.AccessLink;
 import com.mechalikh.docket.network.LinkProfile;
 import com.mechalikh.docket.policy.AdmissionDecision;
 import com.mechalikh.docket.policy.AdmissionPolicy;
+import com.mechalikh.docket.policy.FidelityPolicy;
 import com.mechalikh.docket.policy.ReplicaLoad;
 import com.mechalikh.docket.policy.RoutingPolicy;
 import com.mechalikh.docket.policy.SchedulingPolicy;
@@ -94,6 +95,11 @@ public class InferenceService extends SimEntity {
 	protected final Map<String, ReplicaServer> replicasByDeviceId = new LinkedHashMap<>();
 	/** Policy that decides whether a request enters the service. */
 	protected final AdmissionPolicy admissionPolicy;
+	/**
+	 * Policy that decides how much reasoning work a request may still do, {@code null} when the
+	 * deployment grants every request the length the workload asked for.
+	 */
+	protected final FidelityPolicy fidelityPolicy;
 	/** Policy that decides which replica receives a request. */
 	protected final RoutingPolicy routingPolicy;
 	/** Policy that orders the waiting queue of every replica. */
@@ -136,6 +142,30 @@ public class InferenceService extends SimEntity {
 	public InferenceService(PureEdgeSim simulation, String modelId, List<ReplicaSpec> specs,
 			ExecutionCostModel costModel, AdmissionPolicy admissionPolicy, RoutingPolicy routingPolicy,
 			SchedulingPolicy schedulingPolicy, RequestRecorder recorder, LinkProfile fabric) {
+		this(simulation, modelId, specs, costModel, admissionPolicy, routingPolicy, schedulingPolicy, recorder, fabric,
+				null);
+	}
+
+	/**
+	 * Creates the service and its replicas, with the rule that grants reasoning budgets.
+	 *
+	 * @param simulation      the event engine
+	 * @param modelId         the model every replica serves
+	 * @param specs           one specification per replica, at least one
+	 * @param costModel       the model that prices the execution steps
+	 * @param admissionPolicy the policy that decides whether a request enters
+	 * @param routingPolicy   the policy that chooses the replica
+	 * @param schedulingPolicy the policy that orders the waiting queue of a replica
+	 * @param recorder        the sink of the rows
+	 * @param fabric          the bearer a prompt cache crosses to reach a decode replica, or
+	 *                        {@code null} when the hand-off is instant
+	 * @param fidelityPolicy  the policy that grants the reasoning budget, {@code null} when every
+	 *                        request keeps the length the workload asked for
+	 */
+	public InferenceService(PureEdgeSim simulation, String modelId, List<ReplicaSpec> specs,
+			ExecutionCostModel costModel, AdmissionPolicy admissionPolicy, RoutingPolicy routingPolicy,
+			SchedulingPolicy schedulingPolicy, RequestRecorder recorder, LinkProfile fabric,
+			FidelityPolicy fidelityPolicy) {
 		super(simulation);
 		if (modelId == null || modelId.isEmpty())
 			throw new IllegalArgumentException("A service needs the identifier of the model it serves");
@@ -146,6 +176,7 @@ public class InferenceService extends SimEntity {
 		this.modelId = modelId;
 		this.model = specs.get(0).getModel();
 		this.admissionPolicy = admissionPolicy;
+		this.fidelityPolicy = fidelityPolicy;
 		this.routingPolicy = routingPolicy;
 		this.schedulingPolicy = schedulingPolicy;
 		this.recorder = recorder;
@@ -253,6 +284,7 @@ public class InferenceService extends SimEntity {
 			finish(request, RequestState.REJECTED, OutcomeReason.PROMPT_DOES_NOT_FIT);
 			return;
 		}
+		grantReasoningBudget(request);
 		AdmissionDecision decision = admissionPolicy.decide(request, loads(), simulation.clock());
 		if (!decision.isAdmitted()) {
 			finish(request, RequestState.REJECTED, decision.reason());
@@ -283,6 +315,50 @@ public class InferenceService extends SimEntity {
 	}
 
 	/**
+	 * Grants the request the reasoning budget the fidelity policy chooses, before any admission or
+	 * placement rule sees it.
+	 * <p>
+	 * The grant is applied to the request itself, through {@link
+	 * InferenceRequest#grantReasoningBudget(int)}, because the budget is a property of the work the
+	 * deployment agrees to do: the cache the request may reach, the work its queue position promises
+	 * and the decode steps the serving loop will charge all follow it, and none of them is told the
+	 * answer separately. A deployment that configures no fidelity policy reaches no further than the
+	 * first line, which is what keeps a scenario that never mentions fidelity behaving exactly as it
+	 * did before the mechanism existed.
+	 *
+	 * @param request the arrived request
+	 */
+	protected void grantReasoningBudget(InferenceRequest request) {
+		if (fidelityPolicy == null)
+			return;
+		List<ReplicaLoad> priced = pricedLoads(replicas, request);
+		if (priced.isEmpty())
+			return;
+		int budget = fidelityPolicy.chooseBudget(request, priced, simulation.clock());
+		if (budget < 1 || budget >= request.getOutputTokenBudget())
+			return;
+		request.grantReasoningBudget(budget);
+	}
+
+	/**
+	 * Returns the load of every replica of a stage, each priced for one request.
+	 * <p>
+	 * The prices come from the replicas themselves, through the execution cost model the deployment
+	 * already uses to charge its steps, so a policy that reads them is reading the same arithmetic the
+	 * run will be measured against, not a second model of its own.
+	 *
+	 * @param stage   the replicas to describe
+	 * @param request the request the prices belong to
+	 * @return one priced load per replica of the stage
+	 */
+	protected List<ReplicaLoad> pricedLoads(List<ReplicaServer> stage, InferenceRequest request) {
+		List<ReplicaLoad> view = new ArrayList<>(stage.size());
+		for (ReplicaServer replica : stage)
+			view.add(replica.snapshot(request));
+		return view;
+	}
+
+	/**
 	 * Asks the routing policy which replica of a stage should take the request.
 	 * <p>
 	 * The policy sees only the replicas of the stage, in stage order, so an index it returns is
@@ -297,10 +373,10 @@ public class InferenceService extends SimEntity {
 	protected ReplicaServer routeIn(List<ReplicaServer> stage, InferenceRequest request) {
 		if (stage.isEmpty())
 			return null;
-		List<ReplicaLoad> view = new ArrayList<>(stage.size());
-		for (ReplicaServer replica : stage)
-			view.add(replica.snapshot());
-		int chosenId = routingPolicy.choose(view, request);
+		// The snapshots are priced for this request, so a placement rule can compare tiers in
+		// seconds rather than in request counts; a rule that ignores the prices cannot tell the
+		// difference, and the choice it makes is the choice it always made.
+		int chosenId = routingPolicy.choose(pricedLoads(stage, request), request);
 		// The policy answers with a replica identifier, not a position, and the identifier counts
 		// every replica of the model across the whole service. A stage is a slice of that set, so a
 		// decode instance can be the first replica of its list yet carry the second identifier: the
@@ -636,10 +712,22 @@ public class InferenceService extends SimEntity {
 	}
 
 	/**
-	 * Resets the state the routing policy keeps between requests, before a repetition.
+	 * Resets the state the routing and fidelity policies keep between requests, before a repetition.
 	 */
 	public void resetPolicies() {
 		routingPolicy.reset();
+		if (fidelityPolicy != null)
+			fidelityPolicy.reset();
+	}
+
+	/**
+	 * Returns the policy that grants reasoning budgets, or {@code null} when the deployment sheds
+	 * nothing and every request generates the length the workload asked for.
+	 *
+	 * @return the fidelity policy, or {@code null}
+	 */
+	public FidelityPolicy getFidelityPolicy() {
+		return fidelityPolicy;
 	}
 
 	/**

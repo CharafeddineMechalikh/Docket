@@ -1,0 +1,15 @@
+{
+  "simulator": "Docket (authors' own LLM-serving simulator)",
+  "example": "14-fidelity-aware-edge-routing",
+  "cost_provenance": "synthetic",
+  "arms": {
+    "ex14-naive": "naive placement, full fidelity",
+    "ex14-fidelity": "naive placement + ladder",
+    "ex14-static-edge": "static edge tier + ladder",
+    "ex14-joint-nofid": "joint placement, full fidelity",
+    "ex14-joint": "joint placement + ladder"
+  },
+  "metric": "COMPLETED and e2e met",
+  "repetitions": 5,
+  "cells": 20
+}

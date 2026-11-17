@@ -85,6 +85,10 @@ public class RunResult {
 	protected final int goodRequests;
 	/** Requests that stated at least one objective. */
 	protected final int objectiveRequests;
+	/** Sum of the reasoning shares the rows were served at, for the mean fidelity of the run. */
+	protected final double fidelitySum;
+	/** Sum of the fidelity of the rows that met every objective they stated. */
+	protected final double goodFidelitySum;
 	/** Energy the devices integrated, in joules. */
 	protected final double deviceEnergyJoule;
 	/** Energy the requests carry, in joules. */
@@ -131,6 +135,8 @@ public class RunResult {
 		long generated = 0;
 		long promptCompleted = 0;
 		double requestEnergy = 0;
+		double fidelityTotal = 0;
+		double goodFidelityTotal = 0;
 		for (InferenceRequest request : requests) {
 			RequestState state = request.getState();
 			if (!state.isTerminal())
@@ -147,15 +153,20 @@ public class RunResult {
 			Boolean all = SloChecks.allMet(request);
 			if (all != null) {
 				withObjective++;
-				if (all)
+				if (all) {
 					good++;
+					goodFidelityTotal += request.getFidelityLevel();
+				}
 			}
+			fidelityTotal += request.getFidelityLevel();
 			sloByServiceClass.computeIfAbsent(request.getServiceClass(), ServiceClassSlo::new).add(request);
 		}
 		terminalRequests = terminal;
 		completedRequests = completed;
 		goodRequests = good;
 		objectiveRequests = withObjective;
+		fidelitySum = fidelityTotal;
+		goodFidelitySum = goodFidelityTotal;
 		tokensGenerated = generated;
 		promptTokensCompleted = promptCompleted;
 		requestEnergyJoule = requestEnergy;
@@ -445,6 +456,8 @@ public class RunResult {
 		row.add(Long.toString(samplerBindings));
 		row.add(calibrated ? "calibrated" : "uncalibrated");
 		row.add(csvQuotes(String.join("; ", outcomeCountsByKeyOrder())));
+		row.add(String.format(Locale.ROOT, "%.6f", meanFidelity()));
+		row.add(String.format(Locale.ROOT, "%.6f", qualityWeightedGoodput()));
 		return row;
 	}
 
@@ -492,6 +505,8 @@ public class RunResult {
 		header.add("sampler_bindings");
 		header.add("cost_calibration");
 		header.add("outcomes");
+		header.add("fidelity_mean");
+		header.add("quality_weighted_goodput");
 		return header;
 	}
 
@@ -573,6 +588,36 @@ public class RunResult {
 	 */
 	public double requestsPerSecond() {
 		return durationSeconds <= 0 ? 0 : completedRequests / durationSeconds;
+	}
+
+	/**
+	 * Returns the mean reasoning share the rows of this run were served at.
+	 * <p>
+	 * One means nothing was shed anywhere in the run; below one, some requests answered with less work
+	 * than the workload asked for, and the fraction says how much of the traffic still got a whole
+	 * answer. A deployment that reaches its deadline this way did not make the hard requests cheap to
+	 * serve, it made them shorter, and this column is what bounds the reading of a goodput figure that
+	 * moved with it.
+	 *
+	 * @return the mean fidelity, one when nothing was shed, zero only when no request was recorded
+	 */
+	public double meanFidelity() {
+		return terminalRequests == 0 ? 1 : fidelitySum / terminalRequests;
+	}
+
+	/**
+	 * Returns the goodput weighted by the fidelity each good request was served at.
+	 * <p>
+	 * The ordinary goodput counts a request that met every objective as one, whatever it cost to make
+	 * it fit; this divides the same numerator by the share of the reasoning work that survived, so a
+	 * policy that meets a deadline by cutting an answer to a tenth of it is scored at a tenth of the
+	 * credit. A deployment whose weighted figure is far below its raw one is reporting a saving in
+	 * latency that the client will notice as a loss of work.
+	 *
+	 * @return ratio in {@code [0, 1]}, zero when nothing was offered
+	 */
+	public double qualityWeightedGoodput() {
+		return arrivedRequests == 0 ? 0 : goodFidelitySum / arrivedRequests;
 	}
 
 	/**

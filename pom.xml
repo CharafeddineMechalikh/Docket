@@ -122,6 +122,7 @@
 								<source>examples/10-edge-first-placement/src/main/java</source>
 								<source>examples/11-access-link-offloading/src/main/java</source>
 								<source>examples/12-replica-consolidation/src/main/java</source>
+								<source>examples/14-fidelity-aware-edge-routing/src/main/java</source>
 							</sources>
 						</configuration>
 					</execution>

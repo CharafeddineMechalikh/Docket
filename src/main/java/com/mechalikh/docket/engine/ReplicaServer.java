@@ -38,6 +38,7 @@ import com.mechalikh.docket.memory.GpuMemoryManager;
 import com.mechalikh.docket.memory.KvCachePool;
 import com.mechalikh.docket.metrics.ResourceSample;
 import com.mechalikh.docket.network.AccessLink;
+import com.mechalikh.docket.network.LinkProfile;
 import com.mechalikh.docket.policy.ReplicaLoad;
 import com.mechalikh.docket.policy.SchedulingPolicy;
 import com.mechalikh.docket.power.GpuPowerModel;
@@ -933,11 +934,76 @@ public class ReplicaServer extends SimEntity {
 	 * @return the snapshot of this replica
 	 */
 	public ReplicaLoad snapshot() {
+		return snapshot(null);
+	}
+
+	/**
+	 * Returns the load the policies of the service see, priced for one request.
+	 * <p>
+	 * A policy that only counts queue depth needs no price, but a policy that has to say what a
+	 * request would cost here — a placement rule comparing tiers, a fidelity rule comparing reasoning
+	 * budgets — needs the seconds, and the only honest source for them is the execution cost model
+	 * this replica already uses to charge its steps. The prefill is priced as the step this prompt
+	 * would take, prefix reuse included; the decode is priced as one iteration of the batch this
+	 * replica would form if the request joined it now, so its figure rises with the traffic the
+	 * machine is carrying, which is the behaviour a congestion-aware decision has to see.
+	 *
+	 * @param request the request the prices belong to, {@code null} for an unpriced snapshot
+	 * @return the snapshot of this replica
+	 */
+	public ReplicaLoad snapshot(InferenceRequest request) {
 		double pending = 0;
 		for (double work : pendingWorkByRequest.values())
 			pending += work;
-		return new ReplicaLoad(getId(), device.getId(), device.getDeviceType(), spec.getMaxBatchSize(), waiting.size(),
-				running.size(), pool.freeTokens(), pool.capacityTokens(), pending);
+		double prefill = Double.NaN;
+		double decode = Double.NaN;
+		double access = 0;
+		if (request != null) {
+			int prompt = request.getInputTokens();
+			// A decode instance receives the prompt cache already computed, so the work it still
+			// owes the request is the generation alone; charging it a prefill would steer policies
+			// away from the instances that are the cheapest place to finish a sequence, which is the
+			// same rule predictedWaitingWork applies.
+			if (spec.getRole() != ReplicaSpec.Role.DECODE) {
+				int reused = spec.isPrefixCache() ? Math.min(sharedPrefixTokens(request), prompt) : 0;
+				prefill = cost.prefillStep(model, device, Math.max(1, prompt - reused), reused).seconds();
+			} else {
+				prefill = 0;
+			}
+			// One iteration of the batch this device would run with the request inside it. The step
+			// advances every sequence in the batch, so the latency one sequence pays for its next
+			// token is the step itself, divided by the tokens a speculative step emits.
+			int sequences = Math.max(1, running.size() + 1);
+			long context = pool.usedTokens() + (long) prompt;
+			if (context < sequences)
+				context = sequences;
+			int widest = (int) Math.min(context, Math.max(prompt + 1L, sequences));
+			decode = cost.decodeIteration(model, device, new DecodeBatch(sequences, context, widest)).seconds()
+					/ Math.max(1, spec.acceptedTokensPerStep());
+			access = accessDelaySeconds(request);
+		}
+		return new ReplicaLoad(getId(), device.getId(), device.getDeviceType(), spec.getMaxBatchSize(),
+				waiting.size(), running.size(), pool.freeTokens(), pool.capacityTokens(), pending, prefill, decode,
+				access);
+	}
+
+	/**
+	 * Returns the delay the bearer in front of this replica adds to a request, propagation plus the
+	 * transfer of its prompt at the raw capacity.
+	 * <p>
+	 * The figure is a floor: it says what the hop costs when nothing is queued in front of the
+	 * message, because a decision taken now cannot know what will be pushed before it. The queue
+	 * itself is charged to the request by the engine when the prompt is released.
+	 *
+	 * @param request the request being placed
+	 * @return seconds, zero when the deployment models no access link
+	 */
+	protected double accessDelaySeconds(InferenceRequest request) {
+		if (link == null)
+			return 0;
+		LinkProfile profile = link.getProfile();
+		double bytes = request.getInputTokens() * profile.getBytesPerInputToken();
+		return profile.getLatency() + profile.transferSeconds(bytes);
 	}
 
 	/**

@@ -110,7 +110,7 @@ public class Experiment {
 		PureEdgeSim simulation = new PureEdgeSim();
 		InferenceService service = new InferenceService(simulation, scenario.getModel().getId(),
 				scenario.getReplicas(), scenario.getCost(), scenario.getAdmission(), scenario.getRouting(),
-				scenario.getScheduling(), recorder, scenario.getKvFabric());
+				scenario.getScheduling(), recorder, scenario.getKvFabric(), scenario.getFidelity());
 		WorkloadSource source = new WorkloadSource(simulation, plan, service);
 		RunController controller = new RunController(simulation, service, recorder,
 				scenario.getDurationSeconds(), scenario.getSamplingIntervalSeconds());
