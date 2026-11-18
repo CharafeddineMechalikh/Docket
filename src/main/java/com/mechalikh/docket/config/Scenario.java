@@ -58,6 +58,7 @@ import com.mechalikh.docket.policy.SchedulingPolicy;
 import com.mechalikh.docket.policy.ShortestExpectedFirst;
 import com.mechalikh.docket.policy.ShortestOracleFirst;
 import com.mechalikh.docket.policy.UnlimitedAdmission;
+import com.mechalikh.docket.quality.QualityModel;
 
 /**
  * The experiment a settings file describes, read once and then used to build every repetition.
@@ -118,6 +119,8 @@ public class Scenario {
 	protected final FidelityPolicy fidelity;
 	/** Model that prices the execution steps. */
 	protected final ExecutionCostModel cost;
+	/** Model that maps granted fidelity and delivered tokens to retained quality. */
+	protected final QualityModel quality;
 	/** Whether the deployment splits prefill and decode onto different replicas. */
 	protected final boolean disaggregated;
 	/** Bearer a prompt cache crosses to reach a decode replica, {@code null} when the hand-off is instant. */
@@ -200,6 +203,7 @@ public class Scenario {
 		this.routing = routing;
 		this.scheduling = scheduling;
 		this.cost = cost;
+		this.quality = QualityModel.from(settings);
 		this.disaggregated = disaggregated;
 		this.kvFabric = kvFabric;
 		this.settings = settings;
@@ -1242,6 +1246,7 @@ public class Scenario {
 			lines.put("network", network);
 		lines.put("cost", cost.name() + " [" + cost.provenance().label() + (cost.isCalibrated() ? ", calibrated"
 				: ", uncalibrated") + "]");
+		lines.put("quality", quality.describe());
 		lines.put("workload", workload.describe());
 		lines.put("policies", "admission " + admission.describe() + ", routing " + routing.name() + ", scheduling "
 				+ scheduling.describe() + (fidelity == null ? "" : ", fidelity " + fidelity.describe()));
@@ -1589,6 +1594,15 @@ public class Scenario {
 	 */
 	public ExecutionCostModel getCost() {
 		return cost;
+	}
+
+	/**
+	 * Returns the quality model used to score retained service.
+	 *
+	 * @return the quality model, never {@code null}
+	 */
+	public QualityModel getQuality() {
+		return quality;
 	}
 
 	/**

@@ -129,6 +129,14 @@ Both are **synthetic proxies**, not measurements of answer accuracy. Docket has
 no quality evaluator or benchmark dataset. A request's fidelity level records a
 budget the orchestrator granted, not a score the output received.
 
+Since 1.0 a third column, `model_quality_weighted_goodput`, reports the configured
+[`quality.*` model](configuration.md#quality): an analytic q(f) curve, a measured
+curve loaded from a CSV, or a blend of the granted share with the delivered-token
+share. The scenario description states which one ran and with what provenance, so
+a run using a measured curve can be distinguished from one using an invented one.
+No quality model changes the simulator's decisions; all three columns are evaluation
+views over the same run.
+
 ## Throughput and device aggregates
 
 | Column | Formula |

@@ -885,7 +885,7 @@ rep02/...
 
 ### `summary.csv`
 
-One row per repetition, 71 columns: the identifying columns (`experiment`, `repetition`, `seed`,
+One row per repetition, 75 columns: the identifying columns (`experiment`, `repetition`, `seed`,
 `cost_model`), the aggregates (`duration_s`, `requests_offered`, `requests_completed`,
 `success_ratio`, `requests_with_objective`, `requests_within_objective`, `goodput`,
 `tokens_generated`, `tokens_per_second`, `requests_per_second`), six summary statistics (mean,
@@ -893,8 +893,11 @@ p50, p90, p95, p99, max) for each of the seven metrics (`ttft_s`, `e2e_s`, `tpot
 `queueing_s`, `prefill_s`, `decode_s`), the energy columns (`energy_j`, `energy_wh`), the device
 aggregates (`device_utilisation`, `replicas`, `mean_batch`, `peak_batch`, `decode_iterations`,
 `prefill_steps`, `preemptions`, `cache_refusals`, `stalled_steps`, `peak_cache_occupancy`,
-`sampler_bindings`), the calibration label (`cost_calibration`) and the outcome histogram
-(`outcomes`, as `reason:count` pairs).
+`sampler_bindings`), the calibration label (`cost_calibration`), the three quality views
+(`fidelity_mean`, `quality_weighted_goodput` for granted fidelity,
+`token_weighted_goodput` for delivered tokens, and `model_quality_weighted_goodput`
+for the configured [`quality.*` model](docs/configuration.md#quality)), and the outcome
+histogram (`outcomes`, as `reason:count` pairs).
 
 ### `requests.csv`
 

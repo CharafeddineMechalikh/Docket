@@ -36,6 +36,7 @@ import com.mechalikh.docket.metrics.LatencyStats;
 import com.mechalikh.docket.metrics.RequestRecorder;
 import com.mechalikh.docket.metrics.SloChecks;
 import com.mechalikh.docket.power.GpuPowerModel;
+import com.mechalikh.docket.quality.QualityModel;
 
 /**
  * The aggregates of one repetition, rebuilt from the per-request rows rather than accumulated
@@ -91,6 +92,8 @@ public class RunResult {
 	protected final double goodFidelitySum;
 	/** Sum of the delivered-token share of rows that met every objective. */
 	protected final double tokenWeightedGoodSum;
+	/** Sum of the configured quality model's scores over objective-meeting rows. */
+	protected final double modelQualityGoodSum;
 	/** Energy the devices integrated, in joules. */
 	protected final double deviceEnergyJoule;
 	/** Energy the requests carry, in joules. */
@@ -120,6 +123,26 @@ public class RunResult {
 	 */
 	public RunResult(int repetition, long seed, double durationSeconds, InferenceService service,
 			RequestRecorder recorder, ExecutionCostModel cost, long samplerBindings) {
+		this(repetition, seed, durationSeconds, service, recorder, cost, samplerBindings,
+				new com.mechalikh.docket.quality.CurveQualityModel("linear", 0.5, 0.0, null,
+						com.mechalikh.docket.domain.Provenance.SYNTHETIC));
+	}
+
+	/**
+	 * Builds the aggregates of a finished repetition with an explicit quality model.
+	 *
+	 * @param repetition         repetition index, counting from one
+	 * @param seed               seed the repetition used
+	 * @param durationSeconds    simulated duration
+	 * @param service            the service that ran, already drained of its requests
+	 * @param recorder           the rows of the run
+	 * @param cost               the execution model that priced the steps
+	 * @param samplerBindings generators the repetition bound, one per rebuilt random sampler
+	 * @param quality            model that scores retained service
+	 * @throws IllegalStateException when the invariants of the run do not hold
+	 */
+	public RunResult(int repetition, long seed, double durationSeconds, InferenceService service,
+			RequestRecorder recorder, ExecutionCostModel cost, long samplerBindings, QualityModel quality) {
 		this.repetition = repetition;
 		this.seed = seed;
 		this.durationSeconds = durationSeconds;
@@ -140,6 +163,7 @@ public class RunResult {
 		double fidelityTotal = 0;
 		double goodFidelityTotal = 0;
 		double tokenWeightedGoodTotal = 0;
+		double modelQualityGoodTotal = 0;
 		for (InferenceRequest request : requests) {
 			RequestState state = request.getState();
 			if (!state.isTerminal())
@@ -161,6 +185,7 @@ public class RunResult {
 					goodFidelityTotal += request.getFidelityLevel();
 					tokenWeightedGoodTotal += Math.min(1.0, (double) request.getGeneratedTokens()
 							/ Math.max(1, request.getOutputTokens()));
+					modelQualityGoodTotal += quality.score(request);
 				}
 			}
 			fidelityTotal += request.getFidelityLevel();
@@ -173,6 +198,7 @@ public class RunResult {
 		fidelitySum = fidelityTotal;
 		goodFidelitySum = goodFidelityTotal;
 		tokenWeightedGoodSum = tokenWeightedGoodTotal;
+		modelQualityGoodSum = modelQualityGoodTotal;
 		tokensGenerated = generated;
 		promptTokensCompleted = promptCompleted;
 		requestEnergyJoule = requestEnergy;
@@ -465,6 +491,7 @@ public class RunResult {
 		row.add(String.format(Locale.ROOT, "%.6f", meanFidelity()));
 		row.add(String.format(Locale.ROOT, "%.6f", qualityWeightedGoodput()));
 		row.add(String.format(Locale.ROOT, "%.6f", tokenWeightedGoodput()));
+		row.add(String.format(Locale.ROOT, "%.6f", modelQualityWeightedGoodput()));
 		return row;
 	}
 
@@ -515,6 +542,7 @@ public class RunResult {
 		header.add("fidelity_mean");
 		header.add("quality_weighted_goodput");
 		header.add("token_weighted_goodput");
+		header.add("model_quality_weighted_goodput");
 		return header;
 	}
 
@@ -643,6 +671,19 @@ public class RunResult {
 	 */
 	public double tokenWeightedGoodput() {
 		return arrivedRequests == 0 ? 0 : tokenWeightedGoodSum / arrivedRequests;
+	}
+
+	/**
+	 * Goodput weighted by the configured {@link QualityModel}.
+	 * <p>
+	 * The model may be an analytic q(f) family, a measured curve read from a file, or a
+	 * blend with the delivered-token share. This column is the one to quote when the
+	 * scenario declares a quality curve; the two older goodputs remain for comparison.
+	 *
+	 * @return ratio in {@code [0, 1]}, zero when nothing was offered
+	 */
+	public double modelQualityWeightedGoodput() {
+		return arrivedRequests == 0 ? 0 : modelQualityGoodSum / arrivedRequests;
 	}
 
 	/**

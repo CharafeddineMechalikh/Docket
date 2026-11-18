@@ -129,7 +129,7 @@ public class Experiment {
 		service.checkNoRequestIsLost();
 
 		RunResult result = new RunResult(repetition, seed, end, service, recorder, scenario.getCost(),
-				Randomness.getDrawCount() - bindingsBefore);
+				Randomness.getDrawCount() - bindingsBefore, scenario.getQuality());
 		int endedByHorizon = 0;
 		for (InferenceRequest request : result.getRequests())
 			if (OutcomeReason.SIMULATION_ENDED.label().equals(request.getOutcomeReason()))

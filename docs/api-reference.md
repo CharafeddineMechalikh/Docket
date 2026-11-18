@@ -57,6 +57,14 @@ All code is under `com.mechalikh.docket`.
 | `CostEstimate` | A priced step, carrying its latency and its provenance label. |
 | `DecodeBatch` | The set of sequences decoding together in a step and the cost of that step. |
 
+## `quality`
+
+| Class | Responsibility |
+| --- | --- |
+| `QualityModel` | Maps a terminal request's granted fidelity and delivered tokens to a score in `[0, 1]`. |
+| `CurveQualityModel` | Six analytic q(f) families, an optional token blend, and a measured-curve override. |
+| `MeasuredQualityCurve` | Validated piecewise-linear interpolation of `fidelity,quality` points from a CSV. |
+
 ## `memory`
 
 | Class | Responsibility |
