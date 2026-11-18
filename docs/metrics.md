@@ -111,6 +111,24 @@ Two summaries of the same metric are reported:
 Percentiles are not combinable, so the pooled summary is built from the raw values, not by
 averaging per-repetition percentiles.
 
+### Two quality-weighted goodputs
+
+`quality_weighted_goodput` divides the sum of the **granted** fidelity shares of
+within-objective requests by the number of offered requests. A request granted
+half its reasoning budget contributes $0.5$ even if the engine stopped it earlier
+at a deadline or context limit.
+
+`token_weighted_goodput` divides instead the sum of
+$\min(1, \mathrm{generatedTokens}/\mathrm{requestedOutputTokens})$ over the same
+requests by the offered count. It therefore charges truncation: a granted answer
+that produced only a tenth of its tokens contributes $0.1$. The two columns are
+reported side by side; the second is always at most the first, and a large gap
+means the deployment meets deadlines by cutting answers short.
+
+Both are **synthetic proxies**, not measurements of answer accuracy. Docket has
+no quality evaluator or benchmark dataset. A request's fidelity level records a
+budget the orchestrator granted, not a score the output received.
+
 ## Throughput and device aggregates
 
 | Column | Formula |

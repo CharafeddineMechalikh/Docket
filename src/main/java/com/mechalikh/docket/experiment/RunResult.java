@@ -89,6 +89,8 @@ public class RunResult {
 	protected final double fidelitySum;
 	/** Sum of the fidelity of the rows that met every objective they stated. */
 	protected final double goodFidelitySum;
+	/** Sum of the delivered-token share of rows that met every objective. */
+	protected final double tokenWeightedGoodSum;
 	/** Energy the devices integrated, in joules. */
 	protected final double deviceEnergyJoule;
 	/** Energy the requests carry, in joules. */
@@ -137,6 +139,7 @@ public class RunResult {
 		double requestEnergy = 0;
 		double fidelityTotal = 0;
 		double goodFidelityTotal = 0;
+		double tokenWeightedGoodTotal = 0;
 		for (InferenceRequest request : requests) {
 			RequestState state = request.getState();
 			if (!state.isTerminal())
@@ -156,6 +159,8 @@ public class RunResult {
 				if (all) {
 					good++;
 					goodFidelityTotal += request.getFidelityLevel();
+					tokenWeightedGoodTotal += Math.min(1.0, (double) request.getGeneratedTokens()
+							/ Math.max(1, request.getOutputTokens()));
 				}
 			}
 			fidelityTotal += request.getFidelityLevel();
@@ -167,6 +172,7 @@ public class RunResult {
 		objectiveRequests = withObjective;
 		fidelitySum = fidelityTotal;
 		goodFidelitySum = goodFidelityTotal;
+		tokenWeightedGoodSum = tokenWeightedGoodTotal;
 		tokensGenerated = generated;
 		promptTokensCompleted = promptCompleted;
 		requestEnergyJoule = requestEnergy;
@@ -458,6 +464,7 @@ public class RunResult {
 		row.add(csvQuotes(String.join("; ", outcomeCountsByKeyOrder())));
 		row.add(String.format(Locale.ROOT, "%.6f", meanFidelity()));
 		row.add(String.format(Locale.ROOT, "%.6f", qualityWeightedGoodput()));
+		row.add(String.format(Locale.ROOT, "%.6f", tokenWeightedGoodput()));
 		return row;
 	}
 
@@ -507,6 +514,7 @@ public class RunResult {
 		header.add("outcomes");
 		header.add("fidelity_mean");
 		header.add("quality_weighted_goodput");
+		header.add("token_weighted_goodput");
 		return header;
 	}
 
@@ -618,6 +626,23 @@ public class RunResult {
 	 */
 	public double qualityWeightedGoodput() {
 		return arrivedRequests == 0 ? 0 : goodFidelitySum / arrivedRequests;
+	}
+
+	/**
+	 * Goodput weighted by the share of the requested output that was actually generated.
+	 * <p>
+	 * {@link #qualityWeightedGoodput()} uses the reasoning budget granted at arrival. A request
+	 * truncated at a deadline or context limit keeps its full grant there, although the client
+	 * received fewer tokens than asked for. This metric instead uses the delivered token count,
+	 * capped at one: {@code min(1, generatedTokens / requestedOutputTokens)}. It is a
+	 * <em>synthetic proxy</em> for retained service, not a measurement of answer accuracy: no
+	 * quality evaluator or benchmark dataset is part of this simulator. It is reported next to,
+	 * and never instead of, the granted-share figure so that the two can be compared.
+	 *
+	 * @return ratio in {@code [0, 1]}, zero when nothing was offered
+	 */
+	public double tokenWeightedGoodput() {
+		return arrivedRequests == 0 ? 0 : tokenWeightedGoodSum / arrivedRequests;
 	}
 
 	/**

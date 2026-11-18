@@ -57,6 +57,14 @@ and the cloud fast, and -3.6 to -19.6 when the edge was adequate. Docket is the
 first case; P2's 30-device fleet is the second. Neither paper can claim the
 other's regime, and the Docket check is the evidence for that boundary.
 
+## The two goodput columns
+
+Docket now reports `quality_weighted_goodput` (granted fidelity share) and
+`token_weighted_goodput` (delivered tokens over requested tokens). Both are
+synthetic proxies, not measured answer quality. In Example 14 the token-time
+objective is zero, so no request satisfies every SLO and both columns are zero;
+the fidelity and generated-token columns remain the informative signals here.
+
 ## What this does not establish
 
 * The hardware is invented (round-number capacities, synthetic roofline), so
