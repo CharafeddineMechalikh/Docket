@@ -23,11 +23,12 @@ ARM_LABEL = {
     "ex14-naive": "naive placement, full fidelity",
     "ex14-fidelity": "naive placement + ladder",
     "ex14-static-edge": "static edge tier + ladder",
+    "ex14-edge-nofid": "static edge tier, full fidelity",
     "ex14-joint-nofid": "joint placement, full fidelity",
     "ex14-joint": "joint placement + ladder",
 }
 ORDER = ["ex14-naive", "ex14-fidelity", "ex14-static-edge",
-         "ex14-joint-nofid", "ex14-joint"]
+         "ex14-edge-nofid", "ex14-joint-nofid", "ex14-joint"]
 
 
 def load() -> pd.DataFrame:
@@ -98,19 +99,20 @@ def findings(runs: pd.DataFrame) -> str:
         "## What was run",
         "",
         "Example 14 (`examples/14-fidelity-aware-edge-routing`) replays one generated",
-        "agentic trace at four overhead levels (1x, 1.5x, 2x, 3x) through five arms that",
-        "change exactly two decisions: the routing rule and whether the deadline ladder",
-        "runs. Five seeds per cell, 20 cells. The model is an invented 1B decoder, the",
-        "fleet is a phone accelerator, two on-premise servers and a cloud card behind a",
-        "40 ms WAN, and every cost parameter is marked `synthetic`.",
+        "agentic trace at four overhead levels (1x, 1.5x, 2x, 3x) through six arms that",
+        "form the same placement-by-fidelity factorial the paper analyses: three placement",
+        "rules (untuned load balancer, static edge tier, joint scorer) crossed with the",
+        "ladder on or off. Twenty seeds per cell, 24 cells. The model is an invented 1B",
+        "decoder, the fleet is a phone accelerator, two on-premise servers and a cloud card",
+        "behind a 40 ms WAN, and every cost parameter is marked `synthetic`.",
         "",
         "A request counts as served when its final state is `COMPLETED` **and** it meets",
         "its end-to-end class objective (0.80 s for retrieval, 0.25 s for control).",
         "Docket's `all_slo_met` column is false for every request because the generated",
         "trace carries a zero token-time objective; it is deliberately not used.",
         "",
-        "| Overhead | naive, full fidelity | ladder only | static edge + ladder | joint, no ladder | joint + ladder |",
-        "|---|---|---|---|---|---|",
+        "| Overhead | naive, full fidelity | ladder only | static edge + ladder | static edge, no ladder | joint, no ladder | joint + ladder |",
+        "|---|---|---|---|---|---|---|",
     ]
     for level, row in wide.iterrows():
         cells = " | ".join(f"{row[a]:.3f}" for a in ORDER)
@@ -200,7 +202,7 @@ def main() -> None:
         "cost_provenance": "synthetic",
         "arms": ARM_LABEL,
         "metric": "COMPLETED and e2e met",
-        "repetitions": 5,
+        "repetitions": 20,
         "cells": int(len(runs)),
     }
     (OUT / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")

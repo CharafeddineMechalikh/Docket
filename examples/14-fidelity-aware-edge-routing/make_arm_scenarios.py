@@ -24,6 +24,9 @@ ARMS = {
     "ex14-fidelity": ("least-predicted-work", True),
     # The static edge tier plus the ladder: the strong baseline the joint policy must beat.
     "ex14-static-edge": (EDGE_CLASS, True),
+    # The static edge tier without the ladder: completes the 2 x 3 placement-by-fidelity
+    # factorial that the paper analyses, and isolates the ladder on the constrained tier.
+    "ex14-edge-nofid": (EDGE_CLASS, False),
     # The joint placement with the ladder disabled: the arm that shows what shedding is worth.
     "ex14-joint-nofid": (JOINT_CLASS, False),
 }

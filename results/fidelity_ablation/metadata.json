@@ -6,10 +6,11 @@
     "ex14-naive": "naive placement, full fidelity",
     "ex14-fidelity": "naive placement + ladder",
     "ex14-static-edge": "static edge tier + ladder",
+    "ex14-edge-nofid": "static edge tier, full fidelity",
     "ex14-joint-nofid": "joint placement, full fidelity",
     "ex14-joint": "joint placement + ladder"
   },
   "metric": "COMPLETED and e2e met",
-  "repetitions": 5,
-  "cells": 20
+  "repetitions": 20,
+  "cells": 24
 }

@@ -12,23 +12,24 @@ dominates, and the two studies together locate the boundary of the P2 claim.
 ## What was run
 
 Example 14 (`examples/14-fidelity-aware-edge-routing`) replays one generated
-agentic trace at four overhead levels (1x, 1.5x, 2x, 3x) through five arms that
-change exactly two decisions: the routing rule and whether the deadline ladder
-runs. Five seeds per cell, 20 cells. The model is an invented 1B decoder, the
-fleet is a phone accelerator, two on-premise servers and a cloud card behind a
-40 ms WAN, and every cost parameter is marked `synthetic`.
+agentic trace at four overhead levels (1x, 1.5x, 2x, 3x) through six arms that
+form the same placement-by-fidelity factorial the paper analyses: three placement
+rules (untuned load balancer, static edge tier, joint scorer) crossed with the
+ladder on or off. Twenty seeds per cell, 24 cells. The model is an invented 1B
+decoder, the fleet is a phone accelerator, two on-premise servers and a cloud card
+behind a 40 ms WAN, and every cost parameter is marked `synthetic`.
 
 A request counts as served when its final state is `COMPLETED` **and** it meets
 its end-to-end class objective (0.80 s for retrieval, 0.25 s for control).
 Docket's `all_slo_met` column is false for every request because the generated
 trace carries a zero token-time objective; it is deliberately not used.
 
-| Overhead | naive, full fidelity | ladder only | static edge + ladder | joint, no ladder | joint + ladder |
-|---|---|---|---|---|---|
-| 1x | 0.015 | 0.013 | 0.013 | 0.887 | 1.000 |
-| 1.5x | 0.000 | 0.000 | 0.000 | 0.688 | 1.000 |
-| 2x | 0.000 | 0.000 | 0.000 | 0.459 | 0.998 |
-| 3x | 0.004 | 0.006 | 0.002 | 0.167 | 0.972 |
+| Overhead | naive, full fidelity | ladder only | static edge + ladder | static edge, no ladder | joint, no ladder | joint + ladder |
+|---|---|---|---|---|---|---|
+| 1x | 0.015 | 0.013 | 0.013 | 0.015 | 0.887 | 1.000 |
+| 1.5x | 0.000 | 0.000 | 0.000 | 0.000 | 0.688 | 1.000 |
+| 2x | 0.000 | 0.000 | 0.000 | 0.000 | 0.459 | 0.998 |
+| 3x | 0.004 | 0.006 | 0.002 | 0.002 | 0.167 | 0.972 |
 
 The mean generated-token ratio under the joint policy falls from 0.90 at 1x to 0.42 at 3x, so here the fidelity reduction has a real, priced quality cost: about 58% of the requested reasoning tokens are shed at 3x.
 
