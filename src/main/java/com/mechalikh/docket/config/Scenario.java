@@ -43,7 +43,10 @@ import com.mechalikh.docket.network.LinkProfile;
 import com.mechalikh.docket.policy.AdmissionPolicy;
 import com.mechalikh.docket.policy.CacheCapacityAdmission;
 import com.mechalikh.docket.policy.CompositeAdmission;
+import com.mechalikh.docket.policy.DeadlineLadderFidelity;
 import com.mechalikh.docket.policy.FirstComeFirstServed;
+import com.mechalikh.docket.policy.FidelityLadder;
+import com.mechalikh.docket.policy.FidelityPolicy;
 import com.mechalikh.docket.policy.LeastPredictedWorkRouting;
 import com.mechalikh.docket.policy.LeastQueuedRouting;
 import com.mechalikh.docket.policy.PriorityFirst;
@@ -55,6 +58,7 @@ import com.mechalikh.docket.policy.SchedulingPolicy;
 import com.mechalikh.docket.policy.ShortestExpectedFirst;
 import com.mechalikh.docket.policy.ShortestOracleFirst;
 import com.mechalikh.docket.policy.UnlimitedAdmission;
+import com.mechalikh.docket.quality.QualityModel;
 
 /**
  * The experiment a settings file describes, read once and then used to build every repetition.
@@ -73,9 +77,16 @@ import com.mechalikh.docket.policy.UnlimitedAdmission;
  */
 public class Scenario {
 
+	/**
+	 * The keys a fidelity configuration may carry. They are read by whichever rule is built, so that a
+	 * scenario that sets a ladder nobody walks is reported by the loader instead of running with a
+	 * setting that silently meant nothing.
+	 */
+	private static final List<String> FIDELITY_KEYS = List.of("fidelity.levels", "fidelity.minTokens",
+			"fidelity.margin");
+
 	/** Name written in the artifacts, and used as the run directory. */
-	protected final String name;
-	/** Simulated seconds the run lasts, which caps the clock of the engine. */
+	protected final String name;	/** Simulated seconds the run lasts, which caps the clock of the engine. */
 	protected final double durationSeconds;
 	/** Seed of the random streams of the first repetition. */
 	protected final long seed;
@@ -101,8 +112,15 @@ public class Scenario {
 	protected final RoutingPolicy routing;
 	/** Policy that orders the waiting queue. */
 	protected final SchedulingPolicy scheduling;
+	/**
+	 * Policy that grants reasoning budgets, {@code null} when the deployment was configured without
+	 * fidelity shedding, which is every scenario written before the mechanism existed.
+	 */
+	protected final FidelityPolicy fidelity;
 	/** Model that prices the execution steps. */
 	protected final ExecutionCostModel cost;
+	/** Model that maps granted fidelity and delivered tokens to retained quality. */
+	protected final QualityModel quality;
 	/** Whether the deployment splits prefill and decode onto different replicas. */
 	protected final boolean disaggregated;
 	/** Bearer a prompt cache crosses to reach a decode replica, {@code null} when the hand-off is instant. */
@@ -137,6 +155,39 @@ public class Scenario {
 			List<ReplicaSpec> replicas, WorkloadPlan workload, AdmissionPolicy admission, RoutingPolicy routing,
 			SchedulingPolicy scheduling, ExecutionCostModel cost, boolean disaggregated, LinkProfile kvFabric,
 			Settings settings) {
+		this(name, durationSeconds, seed, repetitions, outputDir, samplingIntervalSeconds, model, device, deviceProfiles,
+				replicas, workload, admission, routing, scheduling, cost, disaggregated, kvFabric, settings, null);
+	}
+
+	/**
+	 * Holds an assembled scenario, including the rule that grants reasoning budgets.
+	 *
+	 * @param name                    experiment name
+	 * @param durationSeconds         simulated duration
+	 * @param seed                    first seed
+	 * @param repetitions             repetition count
+	 * @param outputDir               artifact directory
+	 * @param samplingIntervalSeconds resource sampling period
+	 * @param model                   served model
+	 * @param device                  representative device of the deployment
+	 * @param deviceProfiles          declared device profiles, keyed by profile name
+	 * @param replicas                replica specifications
+	 * @param workload                generated workload
+	 * @param admission               admission policy
+	 * @param routing                 routing policy
+	 * @param scheduling              scheduling policy
+	 * @param cost                    execution cost model
+	 * @param disaggregated           whether prefill and decode run on separate replicas
+	 * @param kvFabric                bearer a prompt cache crosses to a decode replica, or {@code null}
+	 * @param settings                source settings
+	 * @param fidelity                policy that grants reasoning budgets, {@code null} when the
+	 *                                deployment sheds nothing
+	 */
+	protected Scenario(String name, double durationSeconds, long seed, int repetitions, Path outputDir,
+			double samplingIntervalSeconds, ModelProfile model, GpuProfile device, Map<String, GpuProfile> deviceProfiles,
+			List<ReplicaSpec> replicas, WorkloadPlan workload, AdmissionPolicy admission, RoutingPolicy routing,
+			SchedulingPolicy scheduling, ExecutionCostModel cost, boolean disaggregated, LinkProfile kvFabric,
+			Settings settings, FidelityPolicy fidelity) {
 		this.name = name;
 		this.durationSeconds = durationSeconds;
 		this.seed = seed;
@@ -152,9 +203,11 @@ public class Scenario {
 		this.routing = routing;
 		this.scheduling = scheduling;
 		this.cost = cost;
+		this.quality = QualityModel.from(settings);
 		this.disaggregated = disaggregated;
 		this.kvFabric = kvFabric;
 		this.settings = settings;
+		this.fidelity = fidelity;
 	}
 
 	/**
@@ -206,7 +259,7 @@ public class Scenario {
 
 		Scenario scenario = new Scenario(name, duration, seed, repetitions, output, sampling, model, device, profiles,
 				replicas, workload, admission(settings), routing(settings), scheduling(settings), cost, disaggregated,
-				kvFabric, settings);
+				kvFabric, settings, fidelity(settings));
 		scenario.validate();
 		return scenario;
 	}
@@ -841,6 +894,84 @@ public class Scenario {
 	}
 
 	/**
+	 * Builds the policy that grants reasoning budgets, the serving-side statement of fidelity.
+	 * <p>
+	 * The setting is optional and its absence is not a default decision: a scenario that names no
+	 * fidelity policy gets no policy object at all, and the service then leaves every request at the
+	 * length the workload drew, which is the behaviour every committed scenario has always had. A
+	 * custom class is honoured the way the other three hooks honour one, and the ladder keys belong to
+	 * the built-in ladder alone: a scenario that sets {@code fidelity.levels} for a policy that will
+	 * not read them is refused, because a ladder nobody walks is the kind of setting a published
+	 * comparison cannot afford to have meant something else.
+	 *
+	 * @param settings the settings
+	 * @return the policy, or {@code null} when the deployment sheds nothing
+	 */
+	private static FidelityPolicy fidelity(Settings settings) {
+		String className = settings.text("policy.fidelity.class", "");
+		if (!className.isEmpty()) {
+			FidelityPolicy custom = instantiate(className, FidelityPolicy.class, "policy.fidelity.class");
+			// A custom class owns its own arithmetic, so the ladder keys mean nothing to it. They are
+			// still read, so that a scenario carrying them is not reported for unused keys it did set
+			// on purpose, and a scenario carrying none is unaffected.
+			for (String key : FIDELITY_KEYS)
+				settings.raw(key);
+			return custom;
+		}
+		String name = settings.text("policy.fidelity", "");
+		if (name.isEmpty() || "none".equalsIgnoreCase(name) || "full".equalsIgnoreCase(name)) {
+			// A ladder that nothing walks is a setting that would silently mean something else, so it
+			// is refused here rather than left to the unused-key warning the loader prints later.
+			for (String key : FIDELITY_KEYS)
+				if (settings.raw(key) != null)
+					throw new IllegalArgumentException("\"" + key + "\" is set but no fidelity policy is configured; "
+							+ "set policy.fidelity=deadline-ladder, name a class in policy.fidelity.class, or drop the "
+							+ "fidelity settings");
+			return null;
+		}
+		if (!"deadline-ladder".equalsIgnoreCase(name))
+			throw new IllegalArgumentException("Unknown fidelity policy \"" + name
+					+ "\"; use none, full, deadline-ladder, or name a class in policy.fidelity.class");
+		List<Double> levels = fidelityLevels(settings);
+		double margin = settings.number("fidelity.margin", 0);
+		if (margin < 0 || margin >= 1)
+			throw new IllegalArgumentException("\"fidelity.margin\" must be in [0, 1), found " + margin);
+		int minTokens = settings.integer("fidelity.minTokens", 1);
+		return new DeadlineLadderFidelity(new FidelityLadder(levels, minTokens), margin);
+	}
+
+	/**
+	 * Reads the levels of {@code fidelity.levels}, descending and inside {@code (0, 1]}.
+	 *
+	 * @param settings the settings
+	 * @return the levels, at least one, the richest first
+	 */
+	private static List<Double> fidelityLevels(Settings settings) {
+		List<String> words = settings.list("fidelity.levels");
+		if (words.isEmpty())
+			throw new IllegalArgumentException("\"fidelity.levels\" lists the shares a ladder may grant, for instance "
+					+ "fidelity.levels=1,0.5,0.25,0.1; the first entry should be 1, which grants everything");
+		List<Double> levels = new ArrayList<>(words.size());
+		for (String word : words) {
+			double value;
+			try {
+				value = Double.parseDouble(word.replace(",", ""));
+			} catch (NumberFormatException e) {
+				throw new IllegalArgumentException("A fidelity level must be a number, found \"" + word + "\"", e);
+			}
+			if (Double.isNaN(value) || value <= 0 || value > 1)
+				throw new IllegalArgumentException("A fidelity level is a share of the asked length in (0, 1], found "
+						+ value);
+			levels.add(value);
+		}
+		for (int i = 1; i < levels.size(); i++)
+			if (levels.get(i) > levels.get(i - 1))
+				throw new IllegalArgumentException("A fidelity ladder walks down from full fidelity, but \""
+						+ settings.text("fidelity.levels") + "\" rises at entry " + (i + 1));
+		return levels;
+	}
+
+	/**
 	 * Builds a policy from a fully qualified class name, so that an experiment can use a policy
 	 * that lives outside this project without patching the simulator.
 	 * <p>
@@ -1115,9 +1246,10 @@ public class Scenario {
 			lines.put("network", network);
 		lines.put("cost", cost.name() + " [" + cost.provenance().label() + (cost.isCalibrated() ? ", calibrated"
 				: ", uncalibrated") + "]");
+		lines.put("quality", quality.describe());
 		lines.put("workload", workload.describe());
 		lines.put("policies", "admission " + admission.describe() + ", routing " + routing.name() + ", scheduling "
-				+ scheduling.describe());
+				+ scheduling.describe() + (fidelity == null ? "" : ", fidelity " + fidelity.describe()));
 		List<String> out = new ArrayList<>(lines.size());
 		lines.forEach((key, value) -> out.add(String.format(Locale.ROOT, "%-11s %s", key, value)));
 		return out;
@@ -1442,12 +1574,35 @@ public class Scenario {
 	}
 
 	/**
+	 * Returns the policy that grants reasoning budgets.
+	 * <p>
+	 * The answer is {@code null} when the scenario named no fidelity policy, which is every scenario
+	 * written before the mechanism existed and every scenario that means "serve what was asked". A
+	 * caller that reports the configuration therefore has to say so itself rather than print the name
+	 * of a rule that never ran.
+	 *
+	 * @return the fidelity policy, or {@code null} when the deployment sheds nothing
+	 */
+	public FidelityPolicy getFidelity() {
+		return fidelity;
+	}
+
+	/**
 	 * Returns the execution cost model that prices the prefill and decode steps.
 	 *
 	 * @return the cost model
 	 */
 	public ExecutionCostModel getCost() {
 		return cost;
+	}
+
+	/**
+	 * Returns the quality model used to score retained service.
+	 *
+	 * @return the quality model, never {@code null}
+	 */
+	public QualityModel getQuality() {
+		return quality;
 	}
 
 	/**

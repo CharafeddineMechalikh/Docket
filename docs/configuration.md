@@ -475,6 +475,35 @@ model report `synthetic`.
 The support envelope does not refuse a step; it attaches a warning to the estimate and the run, so
 an extrapolated result is still produced and still labelled.
 
+## `quality.*`
+
+| Key | Default | Rule |
+|---|---|---|
+| `quality.curve` | `linear` | `linear`, `sqrt`, `quadratic`, `cubic`, `saturating`, `threshold` |
+| `quality.threshold` | `0.5` | Jump point of `threshold`, in `(0, 1]` |
+| `quality.tokenWeight` | `0` | Weight of delivered/requested tokens in `[0, 1]` |
+| `quality.calibration.file` | none | Optional CSV of `fidelity,quality` points, overriding the curve |
+| `quality.calibration.provenance` | `literature` | `synthetic`, `literature` or `measured` |
+
+A quality model maps the service a request received to a score in `[0, 1]`. With the default
+settings it is the granted fidelity share, which is an accounting proxy: a request given half
+its reasoning budget scores 0.5 even if the engine stopped it earlier. `quality.tokenWeight`
+blends in the share of the requested output that was actually generated, so a truncated answer
+scores less. `quality.curve` changes the shape of the mapping without changing any decision the
+simulator makes; it is a *post-hoc evaluation* curve, not an input to routing or admission.
+
+A measured curve is a CSV with a `fidelity,quality` header and at least two points. An optional
+third column names a service class; unnamed points apply to every class and named points
+override them. Points must lie in `[0, 1]`, be strictly increasing in fidelity and
+non-decreasing in quality, and reach at least 0.95 at the last point. A curve supplied without
+`quality.calibration.provenance=measured` is reported as `literature`, never as a measurement
+of this deployment.
+
+The scenario description prints the model (`quality linear (token weight 0.00, synthetic)`)
+and every summary writes `model_quality_weighted_goodput` next to the two older goodputs. The
+three columns are deliberately distinct: granted share, delivered-token share, and the
+configured model.
+
 ## A fully annotated scenario
 
 The two committed files under `scenarios/` are the worked examples. The loaded one, reduced to its

@@ -61,7 +61,7 @@ public class RequestRecorder {
 			"allocated_blocks", "ttft_s", "tpot_s", "mean_itl_s", "max_itl_s", "e2e_s", "queueing_s", "prefill_s",
 			"decode_s", "uplink_s", "downlink_s", "energy_j", "energy_wh", "preemptions", "ttft_target_s",
 			"e2e_target_s", "tpot_target_s", "cancellation_time_s", "ttft_met", "e2e_met", "tpot_met", "all_slo_met",
-			"decode_iterations_expected"));
+			"decode_iterations_expected", "fidelity_level", "output_token_budget"));
 
 	/** Columns whose value is text, and is therefore quoted in the JSON lines. */
 	protected static final Set<String> TEXT_COLUMNS = Collections.unmodifiableSet(new HashSet<>(
@@ -219,6 +219,8 @@ public class RequestRecorder {
 		values.add(SloChecks.field(SloChecks.tpotMet(request)));
 		values.add(SloChecks.field(SloChecks.allMet(request)));
 		values.add(Integer.toString(Math.max(0, request.getGeneratedTokens() - 1)));
+		values.add(ratio(request.getFidelityLevel()));
+		values.add(Integer.toString(request.getOutputTokenBudget()));
 		return values;
 	}
 
@@ -305,6 +307,21 @@ public class RequestRecorder {
 		if (Double.isNaN(seconds) || Double.isInfinite(seconds))
 			return "";
 		return String.format(Locale.ROOT, "%.9f", seconds);
+	}
+
+	/**
+	 * Formats a share, which is a number that never needs the nine digits of a duration.
+	 * <p>
+	 * The fidelity a request was served at is a ratio of two token counts, so four decimals already
+	 * separate every level a ladder can hold while keeping the column readable in a spreadsheet.
+	 *
+	 * @param value the share
+	 * @return the formatted number
+	 */
+	protected static String ratio(double value) {
+		if (Double.isNaN(value) || Double.isInfinite(value))
+			return "";
+		return String.format(Locale.ROOT, "%.6f", value);
 	}
 
 	/**

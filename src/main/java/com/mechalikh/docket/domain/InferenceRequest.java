@@ -58,6 +58,10 @@ public class InferenceRequest extends AbstractQueueElement<InferenceRequest> {
 	 /** Upper bound on the generated tokens, whatever the workload drew. */
 	protected int maxOutputTokens = Integer.MAX_VALUE;
 	/**
+	 * Share of the reasoning budget the fidelity decision granted, one when nothing was shed.
+	 */
+	protected double fidelityLevel = 1;
+	/**
 	 * Output length the controller can use at admission time. It equals
 	 * {@link #outputTokens} in trace replay, where the length was observed, and a sampled
 	 * or configured estimate for online decisions.
@@ -497,6 +501,66 @@ public class InferenceRequest extends AbstractQueueElement<InferenceRequest> {
 			throw new IllegalArgumentException("Request " + requestId + " has a maximum output of "
 					+ maxOutputTokens);
 		this.maxOutputTokens = maxOutputTokens;
+		return this;
+	}
+
+	/**
+	 * Share of the reasoning budget the deployment granted this request, as decided at arrival.
+	 * <p>
+	 * A request the serving stack let generate everything it asked for carries {@code 1}. A request
+	 * capped below that carries the fraction that survived, which is what a quality-weighted success
+	 * figure needs: the deployment shed work, and the artifacts say how much. The value is a grant,
+	 * not a measurement: what the sequence really produced is in {@link #getGeneratedTokens()}, and
+	 * the two differ when generation stopped early for another reason, at the context window or at a
+	 * deadline.
+	 *
+	 * @return the granted share, in {@code (0, 1]}, one when nothing was shed
+	 */
+	public double getFidelityLevel() {
+		return fidelityLevel;
+	}
+
+	/**
+	 * Number of tokens the deployment will let this request generate, the workload's own ask and the
+	 * caps it was given brought together.
+	 * <p>
+	 * Three figures bound the generated length: what the workload asked for, the hard ceiling the
+	 * scenario declares, and the reasoning budget a fidelity decision granted. The smallest of them
+	 * is what the serving loop stops at, so the artifacts report the budget the request actually
+	 * carried rather than the ceiling nobody used.
+	 *
+	 * @return the tokens the request may generate, at least one
+	 */
+	public int getOutputTokenBudget() {
+		return Math.min(outputTokens, maxOutputTokens);
+	}
+
+	/**
+	 * Grants a reasoning-token budget, the serving-side expression of a fidelity level.
+	 * <p>
+	 * The grant caps the generated length exactly as {@link #setMaxOutputTokens(int)} does, so the
+	 * engine stops the sequence there and charges only the work it still allows: the context the
+	 * request may reach, the work the routing policies compare, the decode steps and the energy all
+	 * follow the grant through the ordinary arithmetic of the serving loop, rather than through any
+	 * figure this method asserts. The cap can only be lowered, never raised, because a fidelity
+	 * decision that invented generation the workload never asked for would report a longer answer
+	 * than the client requested.
+	 *
+	 * @param outputTokens tokens the deployment allows the request to generate, at least one and at
+	 *                     most the length the workload asked for
+	 * @return this request, so that setters can be chained
+	 * @throws IllegalArgumentException when the grant is below one token or exceeds the asked length
+	 */
+	public InferenceRequest grantReasoningBudget(int outputTokens) {
+		if (outputTokens < 1)
+			throw new IllegalArgumentException("Request " + requestId + " is granted " + outputTokens
+					+ " reasoning tokens, at least one is required");
+		if (outputTokens > this.outputTokens)
+			throw new IllegalArgumentException("Request " + requestId + " is granted " + outputTokens
+					+ " reasoning tokens but the workload only asked for " + this.outputTokens);
+		this.fidelityLevel = (double) outputTokens / this.outputTokens;
+		if (outputTokens < maxOutputTokens)
+			maxOutputTokens = outputTokens;
 		return this;
 	}
 

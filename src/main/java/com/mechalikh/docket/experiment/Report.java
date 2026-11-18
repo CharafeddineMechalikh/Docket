@@ -132,7 +132,8 @@ public class Report {
 						+ scenario.getCost().calibrationSource() : ", NOT calibrated"));
 		out.println("overall provenance   : " + scenario.overallProvenance());
 		out.println("policies             : admission=" + scenario.getAdmission().describe() + ", routing="
-				+ scenario.getRouting().name() + ", scheduling=" + scenario.getScheduling().name());
+				+ scenario.getRouting().name() + ", scheduling=" + scenario.getScheduling().name()
+				+ (scenario.getFidelity() == null ? "" : ", fidelity=" + scenario.getFidelity().describe()));
 		out.println("workload             : " + scenario.getWorkload().getPattern() + ", model "
 				+ scenario.getWorkload().getModelId());
 		out.println(repeat('-', 78));
@@ -172,6 +173,15 @@ public class Report {
 				spread(RunResult::getUtilisation)));
 
 		out.println();
+		// The fidelity rows are printed only for a deployment that grants reasoning budgets, so a run
+		// that sheds nothing prints exactly the table it always printed.
+		if (scenario.getFidelity() != null) {
+			double weighted = meanOf(RunResult::qualityWeightedGoodput);
+			out.println("fidelity             : policy " + scenario.getFidelity().name() + ", mean "
+					+ fmt(meanOf(RunResult::meanFidelity), 4) + ", quality-weighted goodput " + fmt(weighted, 4)
+					+ " (goodput " + fmt(meanOf(RunResult::goodput), 4) + ")");
+			out.println();
+		}
 		out.println("Service level objectives, over the requests that stated the objective:");
 		Map<String, int[]> slo = pooledServiceClass();
 		out.println(String.format(Locale.ROOT, "%-14s %9s %9s %9s %9s %9s", "class", "offered", "ttft", "e2e",
